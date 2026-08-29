@@ -146,11 +146,14 @@ fm_pending_reply_extract_corr() {  # <text>
 }
 
 # 0 if <text> carries the exact correlation token for <corr_id>.
+# Accepts the canonical corr=<id> token and the keyed corr-<id> variant some
+# workers post as done [key=corr-<id>]: ... acknowledgments.
 fm_pending_reply_text_has_corr() {  # <text> <corr_id>
   local text=$1 corr=$2 token
   token=$(fm_pending_reply_corr_token "$corr")
   case "$text" in
     *"$token"*) return 0 ;;
+    *"corr-${corr}"*) return 0 ;;
   esac
   return 1
 }
