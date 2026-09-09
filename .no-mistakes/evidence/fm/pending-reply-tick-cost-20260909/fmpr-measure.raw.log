@@ -1,0 +1,25 @@
+fixture root: /tmp/fmpr-measure.t9CIej
+golden settled record b860d1e7c7ed3fd9 phase=resolved escalated=12000 closed=12000
+settled stores built: 2283 records each
+=== instrumented tick passes over the SAME settled store (2283 records) ===
+BEFORE(base) get_calls=13698 close_calls=2283 capture_passes=0 elapsed_ms=171271
+AFTER(target) get_calls=0 close_calls=0 capture_passes=2283 elapsed_ms=1454
+AFTER(target)-pass2 get_calls=0 close_calls=0 capture_passes=2283 elapsed_ms=905
+=== builtin-only proof: settled tick with PATH stripped (target) ===
+settled tick OK with PATH stripped
+=== open-escalation convergence: same behavior before and after ===
+open-escalation fixture seed=1 corr=aeba1ede6a7bfa5e (resolved, escalation still open)
+open-escalation fixture seed=2 corr=ce70cb1674cbe895 (resolved, escalation still open)
+open-escalation fixture seed=3 corr=cd263526fdade163 (resolved, escalation still open)
+-- BEFORE(base) tick over the open-escalation store --
+BEFORE(base) open-escalation tick OK elapsed_ms=1086
+-- AFTER(target) tick over the identical open-escalation store --
+AFTER(target) open-escalation tick OK elapsed_ms=736
+-- verify convergence equality (escalation_closed_epoch set, decision closed exactly once) --
+BEFORE(base) corr=aeba1ede6a7bfa5e CONVERGED (escalation_closed_epoch set, 1 decision close)
+BEFORE(base) corr=cd263526fdade163 CONVERGED (escalation_closed_epoch set, 1 decision close)
+BEFORE(base) corr=ce70cb1674cbe895 CONVERGED (escalation_closed_epoch set, 1 decision close)
+AFTER(target) corr=aeba1ede6a7bfa5e CONVERGED (escalation_closed_epoch set, 1 decision close)
+AFTER(target) corr=cd263526fdade163 CONVERGED (escalation_closed_epoch set, 1 decision close)
+AFTER(target) corr=ce70cb1674cbe895 CONVERGED (escalation_closed_epoch set, 1 decision close)
+ALL MEASUREMENTS DONE
