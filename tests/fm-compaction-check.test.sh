@@ -49,15 +49,22 @@ make_home() {
 
 # run_check <primary-home> [checker args...] -> OUT, STATUS
 run_check() {
-  local primary=$1 case_dir
+  local primary=$1
   shift
+  run_check_with_cmd "cat $MODELS_STUB" "$primary" "$@"
+}
+
+# run_check_with_cmd <models-command> <primary-home> [checker args...] -> OUT, STATUS
+run_check_with_cmd() {
+  local models_cmd=$1 primary=$2 case_dir
+  shift 2
   case_dir=$(cd "$primary/.." && pwd)
   OUT=
   STATUS=0
   OUT=$(FM_HOME="$primary" \
         FM_COMPACTION_PRIMARY_HOME="$primary" \
         FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
-        FM_COMPACTION_MODELS_CMD="cat $MODELS_STUB" \
+        FM_COMPACTION_MODELS_CMD="$models_cmd" \
         bash "$CHECK" "$@" 2>&1) || STATUS=$?
 }
 
@@ -259,8 +266,9 @@ EOF
   assert_contains "$line" "model=syslog-harness/not-a-model" "the unresolved model must be named"
   assert_contains "$line" "reason=model-not-in-pi-model-list" "the reason must be stated"
   run_check "$home" --diagnostics
-  assert_not_contains "$OUT" "COMPACTION: error" "an unresolvable scope must not repeat at every session start"
-  pass "a model absent from the pi model list is a loud error, not a silent pass"
+  assert_contains "$OUT" "COMPACTION: error session=primary" "an unjudgeable scope must reach the digest, not be hidden"
+  assert_contains "$OUT" "reason=model-not-in-pi-model-list" "the digest line must carry the reason"
+  pass "a model absent from the pi model list is a visible error, not a silent pass"
 }
 
 test_ambiguous_model_id_is_an_error() {
@@ -300,7 +308,126 @@ EOF
   expect_code 2 "$STATUS" "an unavailable model list must exit 2"
   assert_contains "$OUT" "COMPACTION: error session=all" "the failure must be reported for the whole check"
   assert_contains "$OUT" "reason=model-list-command-failed" "the reason must name the unavailable command"
-  pass "an unavailable model list fails loudly instead of passing quietly"
+  run_check_with_cmd false "$home" --diagnostics
+  assert_contains "$OUT" "COMPACTION: error session=all" "an unavailable list must reach the digest"
+  pass "an unavailable model list fails visibly instead of passing quietly"
+}
+
+# --- fail-closed coverage for an incomplete model list ----------------------
+#
+# `pi --list-models` can return a partial list (whole providers missing) while
+# still exiting 0. A scope it does not cover must never leave the digest silent:
+# intermittent silence about an unjudged scope is strictly worse than a bounded
+# repeated line.
+
+test_partial_model_list_is_not_silent() {
+  case_dir=$(make_home partial-list)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":100}}
+EOF
+  # A list that is missing the scope's provider entirely: this is what a partial
+  # read looks like, and it differs from a model id that is merely absent.
+  cat > "$case_dir/partial-models.txt" <<'EOF'
+provider         model                                               context  max-out  thinking  images
+deepseek         deepseek-flash                                      1M       384K     yes       yes
+EOF
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD="cat $case_dir/partial-models.txt" \
+        bash "$CHECK" --diagnostics 2>&1) || STATUS=$?
+  expect_code 2 "$STATUS" "a partial list must not pass"
+  [ -n "$OUT" ] || fail "a partial model list produced a silent no-output run"
+  assert_contains "$OUT" "COMPACTION: error session=primary" "the unjudged scope must be named"
+  assert_contains "$OUT" "reason=model-list-missing-provider" "the partial-list signature must be named"
+  pass "a partial model list cannot hide a scope's verdict silently"
+}
+
+test_empty_model_list_is_not_silent() {
+  case_dir=$(make_home empty-list)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":100}}
+EOF
+  cat > "$case_dir/empty-models.txt" <<'EOF'
+provider         model                                               context  max-out  thinking  images
+EOF
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD="cat $case_dir/empty-models.txt" \
+        bash "$CHECK" --diagnostics 2>&1) || STATUS=$?
+  expect_code 2 "$STATUS" "a header-only model list must not pass"
+  [ -n "$OUT" ] || fail "an empty model list produced a silent no-output run"
+  assert_contains "$OUT" "reason=model-list-empty" "the empty list must be reported as such"
+  pass "an empty model list cannot produce a silent no-output run"
+}
+
+test_partial_model_list_retry_recovers() {
+  case_dir=$(make_home partial-retry)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  cat > "$case_dir/partial-models.txt" <<'EOF'
+provider         model                                               context  max-out  thinking  images
+deepseek         deepseek-flash                                      1M       384K     yes       yes
+EOF
+  cat > "$case_dir/flaky-models.sh" <<EOF
+#!/usr/bin/env bash
+# First read is partial, every later read is complete.
+count=0
+[ ! -f "$case_dir/flaky.count" ] || count=\$(cat "$case_dir/flaky.count")
+count=\$((count + 1))
+printf '%s' "\$count" > "$case_dir/flaky.count"
+if [ "\$count" -eq 1 ]; then
+  cat "$case_dir/partial-models.txt"
+else
+  cat "$MODELS_STUB"
+fi
+EOF
+  chmod +x "$case_dir/flaky-models.sh"
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD="$case_dir/flaky-models.sh" \
+        bash "$CHECK" --all 2>&1) || STATUS=$?
+  expect_code 0 "$STATUS" "a retired partial list must resolve to the safe 50% verdict"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "COMPACTION: ok" "the retry must recover the scope's verdict"
+  assert_contains "$line" "trigger=50.0%" "the recovered verdict must use the complete list"
+  pass "a partial first read is retried and the scope is judged instead of erroring"
+}
+
+# make_narrow_fakebin <dirname> [silent-jq]: a PATH with only the tools the
+# checker needs, so a case can remove one of them (no pi) or degrade one
+# (a jq that prints nothing).
+# The stubs are written into the fakebin only: every path here is replaced, never
+# opened, because the entries above are symlinks to the HOST tool of the same name
+# and a plain `cat >` through such a symlink would overwrite the real binary.
+make_narrow_fakebin() {
+  local dirname=$1 mode=${2:-} fakebin tool
+  fakebin="$TMP_ROOT/$dirname"
+  mkdir -p "$fakebin"
+  for tool in bash dirname jq awk grep sed cut head tr cat; do
+    ln -sfn "$(command -v "$tool")" "$fakebin/$tool"
+  done
+  if [ "$mode" = silent-jq ]; then
+    rm -f "$fakebin/jq"
+    cat > "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$fakebin/jq"
+  fi
+  printf '%s' "$fakebin"
 }
 
 test_missing_pi_is_skipped_not_failed() {
@@ -312,11 +439,7 @@ test_missing_pi_is_skipped_not_failed() {
   cat > "$case_dir/global.json" <<'EOF'
 {"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":100}}
 EOF
-  fakebin="$TMP_ROOT/missing-pi-bin"
-  mkdir -p "$fakebin"
-  for tool in bash dirname jq awk grep sed cut head tr cat; do
-    ln -sf "$(command -v "$tool")" "$fakebin/$tool"
-  done
+  fakebin=$(make_narrow_fakebin missing-pi-bin)
   OUT=
   STATUS=0
   OUT=$(PATH="$fakebin" FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
@@ -332,6 +455,29 @@ EOF
   expect_code 0 "$STATUS" "a host without pi must stay exit 0 in table mode"
   assert_contains "$OUT" "reason=pi-not-installed" "--all must say why nothing was judged"
   pass "a host with no pi installed skips the check instead of failing it"
+}
+
+test_silent_jq_is_not_read_as_missing_settings() {
+  case_dir=$(make_home silent-jq)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  # A jq that produces nothing must not look like an empty settings object: the
+  # file exists and names a model, so the honest report names the unreadable file
+  # rather than inventing no-model-configured.
+  fakebin=$(make_narrow_fakebin silent-jq-bin silent-jq)
+  OUT=
+  STATUS=0
+  OUT=$(PATH="$fakebin" FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD="cat $MODELS_STUB" \
+        bash "$CHECK" --diagnostics 2>&1) || STATUS=$?
+  expect_code 2 "$STATUS" "an unreadable settings file must fail"
+  [ -n "$OUT" ] || fail "an unreadable settings file produced a silent no-output run"
+  assert_contains "$OUT" "reason=unreadable-json:$case_dir/global.json" "the unreadable file must be named"
+  pass "a settings read that yields nothing is reported as unreadable, not as missing settings"
 }
 
 # --- session-start wiring ---------------------------------------------------
@@ -439,7 +585,11 @@ test_non_pi_harness_is_skipped
 test_unknown_model_is_an_error
 test_ambiguous_model_id_is_an_error
 test_model_list_failure_is_reported
+test_partial_model_list_is_not_silent
+test_empty_model_list_is_not_silent
+test_partial_model_list_retry_recovers
 test_missing_pi_is_skipped_not_failed
+test_silent_jq_is_not_read_as_missing_settings
 test_bootstrap_reports_unsafe_scope
 test_bootstrap_is_silent_when_every_scope_is_safe
 test_real_pi_model_list_resolves

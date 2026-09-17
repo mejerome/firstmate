@@ -5,8 +5,8 @@
 # Usage:
 #   fm-compaction-check.sh                print one line per session scope
 #   fm-compaction-check.sh --all          same as above (explicit)
-#   fm-compaction-check.sh --diagnostics  print only the mis-sizing verdicts
-#                                         (silent unless a scope is unsafe)
+#   fm-compaction-check.sh --diagnostics  print the unsafe and error verdicts,
+#                                         and nothing else
 #
 # THE ARITHMETIC (single owner: this file, function trigger_percent):
 #   trigger_percent = (contextWindow - reserveTokens) / contextWindow * 100
@@ -30,7 +30,6 @@
 # A session's model follows pi's own settings precedence: the session cwd's
 # .pi/settings.json over the global settings.json, merged key by key. The
 # effective reserveTokens follows the same precedence over the same pair.
-# Context windows are read from `pi --list-models`; no window is hardcoded.
 # Project trust is assumed: pi ignores an untrusted project's settings, and
 # firstmate relies on ~/.pi/agent/trust.json covering its homes (the standing
 # setup carries a "/" entry, which pi's nearest-ancestor lookup applies to every
@@ -39,24 +38,39 @@
 # check cannot say anything about a fleet that launches no pi sessions, and its
 # noisy failure would be a permanent false alarm there.
 #
-# VERDICTS
+# THE MODEL LIST
+# Context windows come from `pi --list-models`, never from a hardcoded table.
+# That command can return a PARTIAL list - whole providers missing - while still
+# exiting 0, so this checker reads it up to FM_COMPACTION_MODELS_ATTEMPTS times
+# (default 3) and unions the rows. A re-read happens only while some scope is
+# still unresolved, so a healthy host pays exactly one invocation, and the
+# worst case is bounded at three.
+# A scope that stays unresolved is never silent:
+#   reason=model-list-missing-provider  the scope's provider is absent from a
+#                                       list that was read successfully, which
+#                                       is the signature of a partial list
+#   reason=model-not-in-pi-model-list   the provider is present but the model is
+#                                       not
+#   reason=model-id-ambiguous           a bare model id is served by more than
+#                                       one provider
+# If no attempt yields a usable list at all, the checker reports that once, as
+# `session=all`, and exits 2.
+#
+# VERDICTS AND VISIBILITY
 #   ok        trigger point is above 0% and at or below the limit
 #   unsafe    trigger point is above the limit (reason=trigger-above-limit), or
 #             the reserve is not below the window at all
 #             (reason=reserve-not-below-window), which compacts every turn
-#   skipped   the scope is not a pi session (reason=harness-not-pi), or this host
-#             has no pi to launch at all (reason=pi-not-installed), so pi's
-#             compaction settings govern nothing here
-#   error     the scope could not be resolved (missing model, unknown or
-#             ambiguous model id, unreadable settings, model list unavailable)
+#   skipped   no verdict is needed here: a non-pi harness, or no pi installed
+#   error     the scope has a verdict to give but an input is missing, absent,
+#             or inconsistent
+# --diagnostics is the session-start digest's view. It prints every unsafe line
+# and every error line, and nothing else: one bounded line per affected scope,
+# never a table. Only `ok` and `skipped` stay quiet, because neither withholds a
+# verdict. A checker that can hide an unjudged scope is exactly how a mis-sized
+# reserve goes unnoticed, so an incomplete list is reported rather than swallowed.
 #
 # Exit status: 0 every scope ok or skipped, 1 at least one unsafe, 2 at least one error.
-#
-# --diagnostics is the session-start digest's view: it carries exactly the
-# mis-sizing verdicts, so the digest stays silent until a scope is unsafe. Every
-# other outcome (skipped, error) stays visible in --all, and an unreadable input
-# still exits 2 there, because a check that cannot run is an operator problem
-# rather than a fleet defect the digest should repeat at every session start.
 #
 # INPUTS (every one overridable so tests and fixtures can substitute them):
 #   FM_COMPACTION_GLOBAL_SETTINGS   default ${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/settings.json
@@ -68,6 +82,8 @@
 #                                   (splits on whitespace; --offline and
 #                                   --no-extensions keep it fast and quiet on the
 #                                   session-start critical path)
+#   FM_COMPACTION_MODELS_ATTEMPTS   default 3; how many times the model list may
+#                                   be read while a scope is unresolved
 #   FM_COMPACTION_MAX_TRIGGER_PERCENT  default 60
 set -eu
 
@@ -76,6 +92,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 
 DEFAULT_MAX_TRIGGER_PERCENT=60
+DEFAULT_MODELS_ATTEMPTS=3
 PI_DEFAULT_RESERVE_TOKENS=16384
 CONFIG_DIR_NAME=.pi
 
@@ -107,6 +124,7 @@ done
 GLOBAL_SETTINGS=${FM_COMPACTION_GLOBAL_SETTINGS:-${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}/settings.json}
 DEFAULT_MODELS_CMD="pi --no-extensions --offline --list-models"
 MODELS_CMD=${FM_COMPACTION_MODELS_CMD:-$DEFAULT_MODELS_CMD}
+MODELS_ATTEMPTS=${FM_COMPACTION_MODELS_ATTEMPTS:-$DEFAULT_MODELS_ATTEMPTS}
 MAX_TRIGGER_PERCENT=${FM_COMPACTION_MAX_TRIGGER_PERCENT:-$DEFAULT_MAX_TRIGGER_PERCENT}
 
 case "$MAX_TRIGGER_PERCENT" in
@@ -114,6 +132,10 @@ case "$MAX_TRIGGER_PERCENT" in
 esac
 awk -v m="$MAX_TRIGGER_PERCENT" 'BEGIN { exit !(m > 0) }' \
   || die_usage "FM_COMPACTION_MAX_TRIGGER_PERCENT must be a positive number"
+case "$MODELS_ATTEMPTS" in
+  ''|*[!0-9]*) die_usage "FM_COMPACTION_MODELS_ATTEMPTS must be a positive integer" ;;
+esac
+[ "$MODELS_ATTEMPTS" -ge 1 ] || die_usage "FM_COMPACTION_MODELS_ATTEMPTS must be a positive integer"
 
 # The primary home whose secondmate registry and harness pin are authoritative.
 # A secondmate home records its parent in .fm-secondmate-parent, so a check run
@@ -142,11 +164,13 @@ bump_verdict() {
 }
 
 # print_line <verdict> <name> <cwd> <model> <window> <reserve> <source> [<reason>] [<detail>]
+# Only `ok` and `skipped` are quiet in diagnostics mode: neither withholds a
+# verdict, while `unsafe` and `error` both do.
 print_line() {
   local verdict=$1 name=$2 cwd=$3 model=$4 window=$5 reserve=$6 source=$7
   local reason=${8:-} detail=${9:-} suffix=
   bump_verdict "$verdict"
-  if [ "$MODE" = diagnostics ] && [ "$verdict" != unsafe ]; then
+  if [ "$MODE" = diagnostics ] && [ "$verdict" != unsafe ] && [ "$verdict" != error ]; then
     return 0
   fi
   if [ -n "$reason" ]; then
@@ -161,36 +185,36 @@ print_line() {
 
 # --- model list -------------------------------------------------------------
 
-MODEL_RAW=
 MODEL_TABLE=
-MODELS_ERROR=
-MODELS_NOT_APPLICABLE=
+MODEL_ROWS=
+MODELS_ATTEMPT_ERROR=
+MODELS_UNAVAILABLE_REASON=
+MODEL_TABLE_READY=0
 
-# Read `pi --list-models` once and turn it into provider|model|tokens|display.
-# The context column is printed with decimal suffixes (131.1K is 131072 rounded
-# to four significant figures), so K is 1000 and M is 1000000 here.
-# Returns 0 with a table, 2 when the check does not apply because this host has no
-# pi to launch (unset MODELS_NOT_APPLICABLE names why), and 1 on a real failure.
-load_model_table() {
+# One read of the model-list command. Appends usable rows to MODEL_ROWS and sets
+# MODELS_ATTEMPT_ERROR when this attempt produced none. Returns 0 when the
+# attempt produced usable rows.
+one_model_read() {
   local -a argv=()
-  MODEL_TABLE=
-  MODELS_ERROR=
-  MODELS_NOT_APPLICABLE=
+  local raw table
+  MODELS_ATTEMPT_ERROR=
   if [ "$MODELS_CMD" = "$DEFAULT_MODELS_CMD" ] && ! command -v pi >/dev/null 2>&1; then
-    MODELS_NOT_APPLICABLE="pi-not-installed"
-    return 2
+    MODELS_ATTEMPT_ERROR="pi-not-installed"
+    return 1
   fi
   # shellcheck disable=SC2206 # intentional word split: the override is a command line
   argv=($MODELS_CMD)
   if [ "${#argv[@]}" -eq 0 ]; then
-    MODELS_ERROR="empty-model-list-command"
+    MODELS_ATTEMPT_ERROR="empty-model-list-command"
     return 1
   fi
-  if ! MODEL_RAW=$("${argv[@]}" 2>/dev/null) || [ -z "$MODEL_RAW" ]; then
-    MODELS_ERROR="model-list-command-failed"
+  if ! raw=$("${argv[@]}" 2>/dev/null); then
+    MODELS_ATTEMPT_ERROR="model-list-command-failed"
     return 1
   fi
-  MODEL_TABLE=$(printf '%s\n' "$MODEL_RAW" | awk '
+  # The context column is printed with decimal suffixes (131.1K is 131072 rounded
+  # to four significant figures), so K is 1000 and M is 1000000 here.
+  table=$(printf '%s\n' "$raw" | awk '
     function to_tokens(value,  n) {
       n = value
       if (value ~ /[Kk]$/) { sub(/[Kk]$/, "", n); return int(n * 1000 + 0.5) }
@@ -204,16 +228,33 @@ load_model_table() {
       if (tokens > 0) printf "%s|%s|%d|%s\n", $1, $2, tokens, $3
     }
   ')
-  if [ -z "$MODEL_TABLE" ]; then
-    MODELS_ERROR="model-list-command-printed-no-usable-rows"
+  if [ -z "$table" ]; then
+    MODELS_ATTEMPT_ERROR="model-list-empty"
     return 1
+  fi
+  if [ -z "$MODEL_ROWS" ]; then
+    MODEL_ROWS=$table
+  else
+    MODEL_ROWS=$(printf '%s\n%s\n' "$MODEL_ROWS" "$table")
   fi
   return 0
 }
 
+# Union of every row seen so far, one row per provider|model, first read wins.
+build_model_table() {
+  MODEL_TABLE=$(printf '%s\n' "$MODEL_ROWS" | awk -F'|' 'NF >= 4 && !seen[$1 "|" $2]++ { print }')
+}
+
 # window_row <provider> <model> -> "tokens|display" when the row exists
 window_row() {
-  printf '%s\n' "$MODEL_TABLE" | awk -F'|' -v p="$1" -v m="$2" '$1 == p && $2 == m { print $3 "|" $4; exit }'
+  printf '%s\n' "$MODEL_TABLE" | awk -F'|' -v p="$1" -v m="$2" \
+    '$1 == p && $2 == m { print $3 "|" $4; found = 1 } END { if (!found) exit 1 }'
+}
+
+# provider_rows <provider> -> any row for that provider ("" when the whole
+# provider is absent, which is how a partial list shows up)
+provider_rows() {
+  printf '%s\n' "$MODEL_TABLE" | awk -F'|' -v p="$1" '$1 == p { print; exit }'
 }
 
 # model_rows <model> -> "provider|tokens|display" for every provider serving it
@@ -221,25 +262,33 @@ model_rows() {
   printf '%s\n' "$MODEL_TABLE" | awk -F'|' -v m="$1" '$2 == m { print $1 "|" $3 "|" $4 }'
 }
 
-# resolve_window <provider|""> <model> -> WINDOW_TOKENS WINDOW_DISPLAY WINDOW_ERROR
+# resolve_window <provider|"-"> <model> -> WINDOW_TOKENS WINDOW_DISPLAY WINDOW_ERROR
 resolve_window() {
   local provider=$1 model=$2 rows count
+  [ "$provider" != "-" ] || provider=
   WINDOW_TOKENS=
   WINDOW_DISPLAY=
   WINDOW_ERROR=
   if [ -n "$provider" ]; then
-    rows=$(window_row "$provider" "$model")
-    if [ -z "$rows" ]; then
+    if ! rows=$(window_row "$provider" "$model"); then
+      rows=
       case "$model" in
         */*)
           # Both a bare pi model id and a "provider/id" spec appear in firstmate
-          # configuration, so retry the split form before failing.
-          rows=$(window_row "${model%%/*}" "${model#*/}")
+          # configuration, so retry the split form before concluding anything.
+          if split=$(window_row "${model%%/*}" "${model#*/}"); then
+            provider=${model%%/*}
+            rows=$split
+          fi
           ;;
       esac
     fi
     if [ -z "$rows" ]; then
-      WINDOW_ERROR="model-not-in-pi-model-list"
+      if [ -n "$(provider_rows "$provider")" ]; then
+        WINDOW_ERROR="model-not-in-pi-model-list"
+      else
+        WINDOW_ERROR="model-list-missing-provider"
+      fi
       return 1
     fi
     WINDOW_TOKENS=${rows%%|*}
@@ -269,9 +318,16 @@ PROJECT_SETTINGS_PATH=
 SETTINGS_ERROR=
 
 # read_json_file <path> -> compact JSON on stdout; absent file yields {}
+# An unusable jq (missing, or a stub that prints nothing) must not look like an
+# empty settings object, so an existing file whose read yields nothing is an
+# error the caller reports by path.
 read_json_file() {
+  local out
   [ -f "$1" ] || { printf '%s' '{}'; return 0; }
-  jq -c . "$1" 2>/dev/null || return 1
+  if ! out=$(jq -c . "$1" 2>/dev/null) || [ -z "$out" ]; then
+    return 1
+  fi
+  printf '%s' "$out"
 }
 
 # load_settings_pair <cwd> -> GLOBAL_JSON, PROJECT_JSON, PROJECT_SETTINGS_PATH
@@ -326,7 +382,7 @@ effective_reserve() {
     RESERVE_SOURCE=$GLOBAL_SETTINGS
   else
     value=$PI_DEFAULT_RESERVE_TOKENS
-    RESERVE_SOURCE=builtin-pi-default
+    RESERVE_SOURCE="builtin-pi-default"
   fi
   case "$value" in
     ''|*[!0-9]*)
@@ -338,137 +394,247 @@ effective_reserve() {
   return 0
 }
 
+# --- scope table ------------------------------------------------------------
+
+# Every scope is collected before any window is resolved, so an incomplete model
+# list can be retried across the whole set instead of being concluded per scope.
+# Fields, tab separated and always non-empty ("-" is the placeholder):
+#   name cwd provider model model_source reserve reserve_source error_reason
+#   reserve_error window_tokens window_display window_error
+SCOPE_TABLE=
+
+add_scope_record() {
+  local rec
+  rec=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}")
+  SCOPE_TABLE="${SCOPE_TABLE}${rec}"$'\n'
+}
+
+# add_scope_from_settings <name> <cwd>
+add_scope_from_settings() {
+  local name=$1 cwd=$2 provider=- model=- model_source=- reserve=- reserve_source=- error_reason=-
+  if ! load_settings_pair "$cwd"; then
+    add_scope_record "$name" "$cwd" - - "$SETTINGS_ERROR" - - "$SETTINGS_ERROR" - - - -
+    return 0
+  fi
+  resolve_settings_model "$cwd"
+  provider=${MODEL_PROVIDER:--}
+  [ "$provider" != "" ] || provider=-
+  model=${MODEL_ID:--}
+  [ "$model" != "" ] || model=-
+  model_source=${MODEL_SOURCE:--}
+  if [ "$model" = "-" ]; then
+    error_reason="no-model-configured"
+  fi
+  if [ "$error_reason" = - ]; then
+    if effective_reserve; then
+      reserve=$RESERVE
+      reserve_source=$RESERVE_SOURCE
+    else
+      reserve_source=${RESERVE_SOURCE:--}
+      reserve_source=${reserve_source:--}
+      error_reason=$RESERVE_ERROR
+    fi
+  fi
+  add_scope_record "$name" "$cwd" "$provider" "$model" "$model_source" \
+    "$reserve" "$reserve_source" "$error_reason" - - - -
+}
+
+# add_scope_from_pin <id> <home>: a secondmate's model comes from the shared
+# config/secondmate-harness pin, whose model the launch passes as --model.
+add_scope_from_pin() {
+  local id=$1 home=$2 name line=- harness=- sm_model=- provider=-
+  local model=- model_source=- error_reason=- reserve=- reserve_source=-
+  name="secondmate-$id"
+  if [ -z "$home" ] || [ ! -d "$home" ]; then
+    add_scope_record "$name" "${home:--}" - - - - - registry-home-missing - - - -
+    return 0
+  fi
+  if ! load_settings_pair "$home"; then
+    add_scope_record "$name" "$home" - - "$SETTINGS_ERROR" - - "$SETTINGS_ERROR" - - - -
+    return 0
+  fi
+  if [ -f "$HARNESS_FILE" ]; then
+    line=$(awk 'NF && $1 !~ /^#/ { print; exit }' "$HARNESS_FILE")
+  fi
+  if [ -n "$line" ]; then
+    read -r harness sm_model _rest <<<"$line" || true
+  fi
+  if [ -n "$line" ] && [ "$harness" != pi ]; then
+    add_scope_record "$name" "$home" - - "$HARNESS_FILE" - - harness-not-pi - - - -
+    return 0
+  fi
+  if [ -n "${sm_model:-}" ]; then
+    provider=$(printf '%s' "$PROJECT_JSON" | jq -r '.defaultProvider // empty')
+    [ -n "$provider" ] || provider=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultProvider // empty')
+    model=$sm_model
+    model_source=$HARNESS_FILE
+  else
+    # No model in the pin: the home's merged settings supply the starting model.
+    resolve_settings_model "$home"
+    provider=${MODEL_PROVIDER:--}
+    model=${MODEL_ID:--}
+    model_source=${MODEL_SOURCE:--}
+    if [ "$model" = - ]; then
+      error_reason="no-model-configured"
+    fi
+  fi
+  if [ "$error_reason" = - ]; then
+    if effective_reserve; then
+      reserve=$RESERVE
+      reserve_source=$RESERVE_SOURCE
+    else
+      reserve_source=${RESERVE_SOURCE:--}
+      reserve_source=${reserve_source:--}
+      error_reason=$RESERVE_ERROR
+    fi
+  fi
+  add_scope_record "$name" "$home" "${provider:--}" "$model" "$model_source" \
+    "$reserve" "$reserve_source" "$error_reason" - - - -
+}
+
+# --- resolution passes ------------------------------------------------------
+
+# Resolve the reserve for every scope that has not been resolved yet, and fold
+# any window already found on an earlier attempt through unchanged.
+resolve_scopes() {
+  local new_table='' rec
+  local name cwd provider model model_source reserve reserve_source error_reason
+  local reserve_error w_tokens w_display w_error
+  while IFS=$'\t' read -r name cwd provider model model_source reserve reserve_source \
+    error_reason reserve_error w_tokens w_display w_error; do
+    [ -n "$name" ] || continue
+    if [ "$error_reason" = - ] && [ "$w_tokens" = - ]; then
+      # Not resolved yet, or resolved only against an incomplete attempt: try
+      # again against everything the model list has yielded so far.
+      resolve_window "$provider" "$model" || true
+      if [ -n "$WINDOW_TOKENS" ]; then
+        w_tokens=$WINDOW_TOKENS
+        w_display=$WINDOW_DISPLAY
+        w_error=-
+      else
+        w_tokens=-
+        w_display=-
+        w_error=$WINDOW_ERROR
+      fi
+    fi
+    rec=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$name" "$cwd" "$provider" "$model" "$model_source" "$reserve" "$reserve_source" \
+      "$error_reason" "$reserve_error" "$w_tokens" "$w_display" "$w_error")
+    new_table="${new_table}${rec}"$'\n'
+  done < <(printf '%s' "$SCOPE_TABLE")
+  SCOPE_TABLE=$new_table
+}
+
+# Scopes still withholding a verdict because the model list did not cover them.
+count_unresolved_scopes() {
+  local count=0 rec
+  local name cwd provider model model_source reserve reserve_source error_reason
+  local reserve_error w_tokens w_display w_error
+  while IFS=$'\t' read -r name cwd provider model model_source reserve reserve_source \
+    error_reason reserve_error w_tokens w_display w_error; do
+    [ -n "$name" ] || continue
+    if [ "$error_reason" = - ] && [ "$w_error" != - ]; then
+      count=$((count + 1))
+    fi
+  done < <(printf '%s' "$SCOPE_TABLE")
+  printf '%s' "$count"
+}
+
 # trigger_percent <window-tokens> <reserve-tokens>
 trigger_percent() {
   awk -v w="$1" -v r="$2" 'BEGIN { printf "%.1f", (w - r) / w * 100 }'
 }
 
-# --- one session scope ------------------------------------------------------
-
-# check_scope <name> <cwd> <provider> <model> <model-source>
-# Requires the settings pair for the scope's cwd to be loaded already.
-check_scope() {
-  local name=$1 cwd=$2 provider=$3 model=$4 model_source=$5
-  local model_display percent verdict reason
-  if [ -z "$model" ]; then
-    print_line error "$name" "$cwd" - - - "$model_source" no-model-configured
-    return 0
-  fi
-  if [ -n "$provider" ]; then
-    model_display="$provider/$model"
-  else
-    model_display="$model"
-  fi
-  if ! resolve_window "$provider" "$model"; then
-    print_line error "$name" "$cwd" "$model_display" - - "$model_source" "$WINDOW_ERROR"
-    return 0
-  fi
-  if ! effective_reserve; then
-    print_line error "$name" "$cwd" "$model_display" "$WINDOW_DISPLAY" - \
-      "$RESERVE_SOURCE" "$RESERVE_ERROR"
-    return 0
-  fi
-  percent=$(trigger_percent "$WINDOW_TOKENS" "$RESERVE")
-  verdict=ok
-  reason=
-  if [ "$RESERVE" -ge "$WINDOW_TOKENS" ]; then
-    verdict=unsafe
-    reason="reserve-not-below-window"
-  elif awk -v p="$percent" -v m="$MAX_TRIGGER_PERCENT" 'BEGIN { exit !(p > m) }'; then
-    verdict=unsafe
-    reason=trigger-above-limit
-  fi
-  print_line "$verdict" "$name" "$cwd" "$model_display" "$WINDOW_DISPLAY" "$RESERVE" \
-    "$RESERVE_SOURCE" "$reason" "trigger=$percent% limit=$MAX_TRIGGER_PERCENT%"
-}
-
-# check_settings_scope <name> <cwd>: model and reserve both from settings.json.
-check_settings_scope() {
-  local name=$1 cwd=$2
-  if ! load_settings_pair "$cwd"; then
-    print_line error "$name" "$cwd" - - - - "$SETTINGS_ERROR"
-    return 0
-  fi
-  resolve_settings_model "$cwd"
-  check_scope "$name" "$cwd" "$MODEL_PROVIDER" "$MODEL_ID" "$MODEL_SOURCE"
-}
-
-# check_global_scope: the pairing a cwd with no project settings receives.
-check_global_scope() {
-  local global_provider global_model
-  PROJECT_JSON='{}'
-  PROJECT_SETTINGS_PATH=
-  if ! GLOBAL_JSON=$(read_json_file "$GLOBAL_SETTINGS"); then
-    print_line error global-scope - - - - - "$GLOBAL_SETTINGS" unreadable-json
-    return 0
-  fi
-  global_provider=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultProvider // empty')
-  global_model=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultModel // empty')
-  check_scope global-scope - "$global_provider" "$global_model" "$GLOBAL_SETTINGS"
-}
-
-# check_secondmate <id> <home>: model from the shared harness pin.
-check_secondmate() {
-  local id=$1 home=$2 line harness sm_model sm_provider
-  if [ -z "$home" ] || [ ! -d "$home" ]; then
-    print_line error "secondmate-$id" "${home:--}" - - - - registry-home-missing
-    return 0
-  fi
-  if ! load_settings_pair "$home"; then
-    print_line error "secondmate-$id" "$home" - - - - "$SETTINGS_ERROR"
-    return 0
-  fi
-  line=
-  if [ -f "$HARNESS_FILE" ]; then
-    line=$(awk 'NF && $1 !~ /^#/ { print; exit }' "$HARNESS_FILE")
-  fi
-  harness=
-  sm_model=
-  if [ -n "$line" ]; then
-    read -r harness sm_model _rest <<<"$line" || true
-  fi
-  if [ -n "$line" ] && [ "$harness" != pi ]; then
-    print_line skipped "secondmate-$id" "$home" - - - "$HARNESS_FILE" harness-not-pi \
-      "harness: $harness"
-    return 0
-  fi
-  if [ -n "$sm_model" ]; then
-    # config/secondmate-harness names a bare model id, and firstmate passes it to
-    # the launch as --model; the provider follows the home's merged settings.
-    sm_provider=$(printf '%s' "$PROJECT_JSON" | jq -r '.defaultProvider // empty')
-    [ -n "$sm_provider" ] || sm_provider=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultProvider // empty')
-    check_scope "secondmate-$id" "$home" "$sm_provider" "$sm_model" "$HARNESS_FILE"
-    return 0
-  fi
-  resolve_settings_model "$home"
-  check_scope "secondmate-$id" "$home" "$MODEL_PROVIDER" "$MODEL_ID" "$MODEL_SOURCE"
+# Emit one line for every collected scope.
+emit_scopes() {
+  local rec
+  local name cwd provider model model_source reserve reserve_source error_reason
+  local reserve_error w_tokens w_display w_error model_display percent verdict reason
+  while IFS=$'\t' read -r name cwd provider model model_source reserve reserve_source \
+    error_reason reserve_error w_tokens w_display w_error; do
+    [ -n "$name" ] || continue
+    if [ "$provider" = - ]; then
+      model_display=$model
+    else
+      model_display="$provider/$model"
+    fi
+    if [ "$error_reason" = harness-not-pi ]; then
+      print_line skipped "$name" "$cwd" - - - "$model_source" harness-not-pi
+      continue
+    fi
+    if [ "$error_reason" != - ]; then
+      print_line error "$name" "$cwd" "$model_display" - - "$model_source" "$error_reason"
+      continue
+    fi
+    if [ "$w_error" != - ]; then
+      print_line error "$name" "$cwd" "$model_display" - - "$model_source" "$w_error"
+      continue
+    fi
+    if [ "$reserve_error" != - ]; then
+      print_line error "$name" "$cwd" "$model_display" "$w_display" - "$reserve_source" "$reserve_error"
+      continue
+    fi
+    percent=$(trigger_percent "$w_tokens" "$reserve")
+    verdict=ok
+    reason=
+    if [ "$reserve" -ge "$w_tokens" ]; then
+      verdict=unsafe
+      reason="reserve-not-below-window"
+    elif awk -v p="$percent" -v m="$MAX_TRIGGER_PERCENT" 'BEGIN { exit !(p > m) }'; then
+      verdict=unsafe
+      reason="trigger-above-limit"
+    fi
+    print_line "$verdict" "$name" "$cwd" "$model_display" "$w_display" "$reserve" \
+      "$reserve_source" "$reason" "trigger=$percent% limit=$MAX_TRIGGER_PERCENT%"
+  done < <(printf '%s' "$SCOPE_TABLE")
 }
 
 # --- run --------------------------------------------------------------------
 
-MODELS_RC=0
-load_model_table || MODELS_RC=$?
-if [ "$MODELS_RC" -eq 2 ]; then
-  print_line skipped all - - - - "${MODELS_CMD%% *}" "$MODELS_NOT_APPLICABLE"
-  exit 0
-fi
-if [ "$MODELS_RC" -ne 0 ]; then
-  print_line error all - - - - "$MODELS_CMD" "$MODELS_ERROR"
-  exit 2
-fi
-
+# 1. Collect every scope, with its reserve, without touching the model list.
 if [ -d "$PRIMARY_HOME" ]; then
-  check_settings_scope primary "$PRIMARY_HOME"
+  add_scope_from_settings primary "$PRIMARY_HOME"
 else
-  print_line error primary "$PRIMARY_HOME" - - - - primary-home-missing
+  add_scope_record primary "$PRIMARY_HOME" - - - - - primary-home-missing - - - -
 fi
 
-check_global_scope
+# The global scope is the pairing a session in a cwd with no project settings
+# receives; it is the only row that reports the global file's own reserve.
+PROJECT_JSON='{}'
+PROJECT_SETTINGS_PATH=
+if ! GLOBAL_JSON=$(read_json_file "$GLOBAL_SETTINGS"); then
+  add_scope_record global-scope - - - "$GLOBAL_SETTINGS" - - unreadable-json - - - -
+else
+  global_provider=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultProvider // empty')
+  global_model=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultModel // empty')
+  if [ -z "$global_model" ]; then
+    add_scope_record global-scope - "${global_provider:--}" - "$GLOBAL_SETTINGS" - - no-model-configured - - - -
+  else
+    reserve=$PI_DEFAULT_RESERVE_TOKENS
+    reserve_source="builtin-pi-default"
+    has_global=$(printf '%s' "$GLOBAL_JSON" | jq -r \
+      'if (.compaction? | type) == "object" then (.compaction | has("reserveTokens")) else false end')
+    if [ "$has_global" = true ]; then
+      reserve=$(printf '%s' "$GLOBAL_JSON" | jq -r '.compaction.reserveTokens')
+      reserve_source=$GLOBAL_SETTINGS
+      case "$reserve" in
+        ''|*[!0-9]*) add_scope_record global-scope - "${global_provider:--}" "$global_model" \
+          "$GLOBAL_SETTINGS" - "$reserve_source" reserveTokens-is-not-a-non-negative-integer - - - - ;;
+        *) add_scope_record global-scope - "${global_provider:--}" "$global_model" \
+          "$GLOBAL_SETTINGS" "$reserve" "$reserve_source" - - - - - ;;
+      esac
+    else
+      add_scope_record global-scope - "${global_provider:--}" "$global_model" \
+        "$GLOBAL_SETTINGS" "$reserve" "$reserve_source" - - - - -
+    fi
+  fi
+fi
 
 if [ -f "$SECONDMATES_FILE" ]; then
   while IFS='|' read -r sm_id sm_home; do
     [ -n "$sm_id" ] || continue
-    check_secondmate "$sm_id" "$sm_home"
+    add_scope_from_pin "$sm_id" "$sm_home"
   done < <(awk '
     /^- / {
       id = $2
@@ -480,5 +646,35 @@ if [ -f "$SECONDMATES_FILE" ]; then
     }
   ' "$SECONDMATES_FILE")
 fi
+
+# 2. Read the model list, re-reading only while a scope is still unresolved.
+#    A partial list from a successful read is the reason this loops.
+attempt=1
+while :; do
+  if one_model_read; then
+    MODEL_TABLE_READY=1
+    MODELS_UNAVAILABLE_REASON=
+  else
+    MODELS_UNAVAILABLE_REASON=$MODELS_ATTEMPT_ERROR
+  fi
+  build_model_table
+  resolve_scopes
+  [ "$(count_unresolved_scopes)" -gt 0 ] || break
+  [ "$attempt" -lt "$MODELS_ATTEMPTS" ] || break
+  attempt=$((attempt + 1))
+done
+
+# 3. Emit. With no usable list at all the whole check is unjudgeable, so that
+#    case is one bounded line rather than one line per scope.
+if [ "$MODEL_TABLE_READY" -eq 0 ]; then
+  if [ "$MODELS_UNAVAILABLE_REASON" = pi-not-installed ]; then
+    print_line skipped all - - - - "${MODELS_CMD%% *}" pi-not-installed
+    exit 0
+  fi
+  print_line error all - - - - "$MODELS_CMD" "$MODELS_UNAVAILABLE_REASON"
+  exit 2
+fi
+
+emit_scopes
 
 exit "$VERDICT_WORST"

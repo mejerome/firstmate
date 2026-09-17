@@ -30,6 +30,25 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-bootstrap-tests)
 export FM_BACKEND_CMUX_BUNDLE_BIN="$TMP_ROOT/no-bundled-cmux"
 
+# Hermetic pi compaction check. Bootstrap now relays
+# `bin/fm-compaction-check.sh --diagnostics`, which resolves each pi session
+# scope's model window from `pi --list-models` (a fixture stub here, because this
+# suite deliberately stubs `node`, and `pi` runs under `#!/usr/bin/env node`) and
+# each scope's reserveTokens from the settings files. Pointing both at fixture
+# files keeps these cases about bootstrap's own reporting rather than about the
+# ambient fleet configuration, and an unsafe or unjudgeable scope would
+# otherwise print a COMPACTION line and break the silence contracts below.
+# 65536 of a 131.1K window is the safe 50% pairing.
+export FM_COMPACTION_GLOBAL_SETTINGS="$TMP_ROOT/compaction-global.json"
+export FM_COMPACTION_MODELS_CMD="cat $TMP_ROOT/compaction-models.txt"
+cat > "$FM_COMPACTION_GLOBAL_SETTINGS" <<'JSON'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":true,"reserveTokens":65536,"keepRecentTokens":15000}}
+JSON
+cat > "$TMP_ROOT/compaction-models.txt" <<'MODELS'
+provider         model                                               context  max-out  thinking  images
+syslog-harness   syslog-auto                                         131.1K   8.2K     no        no
+MODELS
+
 # Hermetic runtime-backend detection. These cases pin the backend per-home via
 # config/backend; the dev shell's ambient runtime markers ($TMUX inside tmux,
 # HERDR_ENV inside herdr, CMUX_* inside a cmux terminal) must not leak into
@@ -538,12 +557,16 @@ test_orca_backend_gates_orca_tool_only_when_selected() {
 # with tmux absent. Echoes the fakebin dir. The removed tmux is what makes these
 # cases catch the old "everything but orca demands tmux" bug: with the buggy
 # TOOLS list a herdr/zellij/cmux home would report MISSING: tmux here.
+# jq is the REAL jq rather than an exit-0 stub: bootstrap's own config validation
+# and the compaction check it relays both read JSON with it, so a stub that
+# prints nothing is not a host any of these silence contracts describe.
 make_fake_toolchain_no_tmux() {  # <case-dir> <extra-cli...>
   local dir=$1 fakebin
   shift
   fakebin=$(make_fake_toolchain "$dir")
   rm -f "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" jq "$@"
+  add_real_jq "$fakebin"
+  fm_fake_exit0 "$fakebin" "$@"
   printf '%s\n' "$fakebin"
 }
 
