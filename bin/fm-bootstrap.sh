@@ -10,6 +10,9 @@
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
+#                 "COMPACTION: <ok|unsafe|skipped|error> session=<name> cwd=<dir>
+#                  model=<provider>/<id> window=<display> reserveTokens=<n>
+#                  source=<file> reason=<slug> ...",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
 #                 "TANGLE: <remediation>",
@@ -48,6 +51,12 @@
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
+#          A COMPACTION line means a pi session scope firstmate launches would
+#          compact only after the printed trigger point of its model's window, or
+#          would compact on every turn because its reserveTokens is not below that
+#          window. bin/fm-compaction-check.sh owns that resolution and arithmetic;
+#          it reads the same settings files pi does and prints nothing when every
+#          scope is safe.
 #          treehouse is also MISSING when its installed version lacks
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
@@ -1267,6 +1276,14 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  # A mis-sized compaction reserveTokens silently makes a pi session compact too
+  # late to be useful (a large window with a small reserve) or on every turn (a
+  # reserve at or above the window). The checker resolves every scope firstmate
+  # launches from the files pi itself reads, is read-only, and prints only
+  # actionable scopes, so this stays silent when every scope is safe.
+  if [ -x "$SCRIPT_DIR/fm-compaction-check.sh" ]; then
+    "$SCRIPT_DIR/fm-compaction-check.sh" --diagnostics 2>/dev/null || true
+  fi
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

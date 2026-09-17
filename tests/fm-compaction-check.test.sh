@@ -1,0 +1,445 @@
+#!/usr/bin/env bash
+# Behavior tests for bin/fm-compaction-check.sh.
+#
+# The checker resolves, for each pi session scope firstmate launches, the model
+# that session starts with, that model's context window from the pi model list,
+# the effective reserveTokens for the session's cwd, and the resulting compaction
+# trigger point as a percentage of the window. It exits non-zero when a trigger
+# point sits above the limit or when the reserve is not below the window at all.
+#
+# Every test drives the real script as a subprocess against fixtures: a global
+# settings file, a project settings file, a secondmate registry, a
+# secondmate-harness pin, and a stub `pi --list-models` output. Nothing here
+# asserts script source text; the assertions are on the script's stdout and exit
+# status only.
+#
+# The precedence axis matters most: pi merges the project settings over the
+# global settings, so a project reserveTokens must win, and the project file's
+# absence must fall through to the global one.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+CHECK="$ROOT/bin/fm-compaction-check.sh"
+TMP_ROOT=$(fm_test_tmproot fm-compaction-check)
+
+# A stub `pi --list-models` table. Context values use the real command's decimal
+# suffixes, and deepseek-v4-flash deliberately appears under two providers so the
+# ambiguous-model-id path is exercised.
+MODELS_STUB="$TMP_ROOT/models.txt"
+cat > "$MODELS_STUB" <<'EOF'
+provider         model                                               context  max-out  thinking  images
+syslog-harness   syslog-auto                                         131.1K   8.2K     no        no
+deepseek         deepseek-v4-flash                                   1M       384K     yes       no
+openrouter       deepseek-v4-flash                                   1M       128K     yes       no
+deepseek         deepseek-flash                                      1M       384K     yes       yes
+EOF
+
+OUT=
+STATUS=0
+
+# make_home <case>: builds $TMP_ROOT/<case>/home with the pi/project/registry
+# layout the checker reads, and echoes the case directory.
+make_home() {
+  local dir="$TMP_ROOT/$1"
+  mkdir -p "$dir/home/.pi" "$dir/home/data" "$dir/home/config"
+  printf '%s' "$dir"
+}
+
+# run_check <primary-home> [checker args...] -> OUT, STATUS
+run_check() {
+  local primary=$1 case_dir
+  shift
+  case_dir=$(cd "$primary/.." && pwd)
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$primary" \
+        FM_COMPACTION_PRIMARY_HOME="$primary" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD="cat $MODELS_STUB" \
+        bash "$CHECK" "$@" 2>&1) || STATUS=$?
+}
+
+# A session line for one scope only, so a presence assertion cannot be satisfied
+# by another scope's output.
+scope_line() { # <name> <output>
+  printf '%s\n' "$2" | grep -F "session=$1 " || true
+}
+
+test_project_over_global_reserve_wins() {
+  case_dir=$(make_home project-over-global)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":true,"reserveTokens":60000}}
+EOF
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"enabled":true,"reserveTokens":65536}}
+EOF
+  run_check "$home"
+  expect_code 0 "$STATUS" "project-over-global: safe configuration must pass"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "reserveTokens=65536" "project reserve must override the global reserve"
+  assert_contains "$line" "source=$home/.pi/settings.json" "the project file must be named as the source"
+  assert_contains "$line" "trigger=50.0%" "65536 of 131.1K must trigger at 50.0%"
+  assert_not_contains "$line" "reserveTokens=60000" "the global reserve must not be reported for this scope"
+  global_line=$(scope_line global-scope "$OUT")
+  assert_contains "$global_line" "reserveTokens=60000" "the global scope must still report the global reserve"
+  assert_contains "$global_line" "source=$case_dir/global.json" "the global scope must name the global file"
+  pass "project .pi/settings.json reserveTokens wins over the global settings"
+}
+
+test_global_reserve_used_without_project_settings() {
+  case_dir=$(make_home global-fallback)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  run_check "$home"
+  expect_code 0 "$STATUS" "global-fallback: safe configuration must pass"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "reserveTokens=65536" "the global reserve must apply when the cwd has no project settings"
+  assert_contains "$line" "source=$case_dir/global.json" "the global file must be named as the source"
+  pass "a cwd with no project settings falls through to the global reserve"
+}
+
+test_builtin_default_reserve_is_named() {
+  case_dir=$(make_home builtin-default)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"keepRecentTokens":15000}}
+EOF
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"keepRecentTokens":20000}}
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "builtin-default: 16384 of 131.1K triggers at 87.5% and must fail"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "reserveTokens=16384" "pi's built-in default reserve must be used"
+  assert_contains "$line" "source=builtin-pi-default" "the built-in default must be named as the source"
+  assert_contains "$line" "reason=trigger-above-limit" "an 87.5% trigger must be reported as above the limit"
+  pass "the built-in pi default reserve is used and named when no file sets one"
+}
+
+test_above_limit_failure_names_every_input() {
+  case_dir=$(make_home above-limit)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  # The incident shape: a reserve sized for a 131K window left in place under a
+  # 1M model, so compaction never fires.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"deepseek","defaultModel":"deepseek-flash","compaction":{"reserveTokens":46072}}
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "above-limit: a 95.4% trigger must fail"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "COMPACTION: unsafe" "the failing scope must be marked unsafe"
+  assert_contains "$line" "session=primary" "the line must name the session"
+  assert_contains "$line" "model=deepseek/deepseek-flash" "the line must name the model"
+  assert_contains "$line" "window=1M" "the line must name the window"
+  assert_contains "$line" "reserveTokens=46072" "the line must name the setting"
+  assert_contains "$line" "source=$case_dir/global.json" "the line must name the file that set it"
+  assert_contains "$line" "trigger=95.4%" "46072 of 1M must trigger at 95.4%"
+  assert_contains "$line" "reason=trigger-above-limit" "the reason must ride the line"
+  pass "a trigger above the limit fails non-zero and names session, model, window, setting, and file"
+}
+
+test_reserve_at_or_above_window_fails() {
+  case_dir=$(make_home reserve-over-window)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":500000}}
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "reserve-over-window: a reserve larger than the window must fail"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "reason=reserve-not-below-window" "a reserve at or above the window compacts every turn"
+  pass "a reserve that is not below the window fails even though the trigger point is not above the limit"
+}
+
+test_diagnostics_mode_is_silent_when_safe() {
+  case_dir=$(make_home diagnostics-silent)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"reserveTokens":65536}}
+EOF
+  run_check "$home" --diagnostics
+  expect_code 0 "$STATUS" "diagnostics: a safe configuration must exit 0"
+  [ -z "$OUT" ] || fail "diagnostics mode must print nothing when every scope is safe"$'\n'"--- output ---"$'\n'"$OUT"
+  run_check "$home" --all
+  assert_contains "$OUT" "session=primary" "--all must still print the per-scope line"
+  pass "--diagnostics is silent when every scope is safe while --all still prints the table"
+}
+
+test_diagnostics_mode_prints_only_actionable_lines() {
+  case_dir=$(make_home diagnostics-unsafe)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":20000}}
+EOF
+  run_check "$home" --diagnostics
+  expect_code 1 "$STATUS" "diagnostics: an unsafe configuration must exit 1"
+  assert_contains "$OUT" "COMPACTION: unsafe session=primary" "the unsafe scope must be printed"
+  assert_contains "$OUT" "reason=trigger-above-limit" "the unsafe line must carry its reason"
+  assert_not_contains "$OUT" "COMPACTION: ok" "safe scopes must stay silent in diagnostics mode"
+  pass "--diagnostics prints only the actionable lines"
+}
+
+test_secondmate_home_project_reserve_wins() {
+  case_dir=$(make_home secondmates)
+  home="$case_dir/home"
+  mkdir -p "$case_dir/sm-a/.pi" "$case_dir/sm-b/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  cat > "$home/config/secondmate-harness" <<'EOF'
+pi syslog-auto
+EOF
+  # sm-a overrides its own reserve; sm-b inherits the global one.
+  cat > "$case_dir/sm-a/.pi/settings.json" <<'EOF'
+{"compaction":{"reserveTokens":40000}}
+EOF
+  rmdir "$case_dir/sm-b/.pi"
+  cat > "$home/data/secondmates.md" <<EOF
+- alpha - Test secondmate alpha. (home: $case_dir/sm-a; scope: testing; projects: none; added 2026-01-01)
+- beta - Test secondmate beta. (home: $case_dir/sm-b; scope: testing; projects: none; added 2026-01-01)
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "secondmates: alpha's 40000 reserve triggers at 69.5% and must fail"
+  alpha=$(scope_line secondmate-alpha "$OUT")
+  beta=$(scope_line secondmate-beta "$OUT")
+  assert_contains "$alpha" "model=syslog-harness/syslog-auto" "the harness pin's model must be used"
+  assert_contains "$alpha" "reserveTokens=40000" "that home's own project reserve must win"
+  assert_contains "$alpha" "source=$case_dir/sm-a/.pi/settings.json" "the home's own file must be the source"
+  assert_contains "$alpha" "reason=trigger-above-limit" "69.5% must be reported as above the limit"
+  assert_contains "$beta" "reserveTokens=65536" "a home without project settings must inherit the global reserve"
+  assert_contains "$beta" "trigger=50.0%" "the inherited reserve must trigger at 50.0%"
+  pass "each secondmate home resolves its own project settings over the global file"
+}
+
+test_non_pi_harness_is_skipped() {
+  case_dir=$(make_home non-pi-harness)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  cat > "$home/config/secondmate-harness" <<'EOF'
+claude sonnet high
+EOF
+  cat > "$home/data/secondmates.md" <<EOF
+- gamma - Test secondmate gamma. (home: $home; scope: testing; projects: none; added 2026-01-01)
+EOF
+  run_check "$home"
+  expect_code 0 "$STATUS" "a non-pi harness must not be reported as a pi compaction failure"
+  line=$(scope_line secondmate-gamma "$OUT")
+  assert_contains "$line" "COMPACTION: skipped" "the scope must be marked skipped"
+  assert_contains "$line" "reason=harness-not-pi" "the skip reason must be stated"
+  run_check "$home" --diagnostics
+  [ -z "$OUT" ] || fail "a skipped scope must not be an actionable diagnostic"$'\n'"--- output ---"$'\n'"$OUT"
+  pass "a non-pi secondmate harness is skipped rather than judged by pi's compaction settings"
+}
+
+test_unknown_model_is_an_error() {
+  case_dir=$(make_home unknown-model)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"not-a-model","compaction":{"reserveTokens":65536}}
+EOF
+  run_check "$home"
+  expect_code 2 "$STATUS" "an unresolvable model must exit 2"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "COMPACTION: error" "the scope must be marked error"
+  assert_contains "$line" "model=syslog-harness/not-a-model" "the unresolved model must be named"
+  assert_contains "$line" "reason=model-not-in-pi-model-list" "the reason must be stated"
+  run_check "$home" --diagnostics
+  assert_not_contains "$OUT" "COMPACTION: error" "an unresolvable scope must not repeat at every session start"
+  pass "a model absent from the pi model list is a loud error, not a silent pass"
+}
+
+test_ambiguous_model_id_is_an_error() {
+  case_dir=$(make_home ambiguous-model)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  # No defaultProvider here, so the pin's bare model id has no provider to
+  # qualify it and the ambiguity must be reported rather than guessed.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  cat > "$home/config/secondmate-harness" <<'EOF'
+pi deepseek-v4-flash
+EOF
+  cat > "$home/data/secondmates.md" <<EOF
+- delta - Test secondmate delta. (home: $home; scope: testing; projects: none; added 2026-01-01)
+EOF
+  run_check "$home"
+  expect_code 2 "$STATUS" "a model id served by two providers must exit 2"
+  line=$(scope_line secondmate-delta "$OUT")
+  assert_contains "$line" "reason=model-id-ambiguous" "the ambiguity must be reported rather than guessed"
+  pass "a bare model id served by more than one provider is a loud error"
+}
+
+test_model_list_failure_is_reported() {
+  case_dir=$(make_home models-failure)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":65536}}
+EOF
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        FM_COMPACTION_MODELS_CMD=false bash "$CHECK" 2>&1) || STATUS=$?
+  expect_code 2 "$STATUS" "an unavailable model list must exit 2"
+  assert_contains "$OUT" "COMPACTION: error session=all" "the failure must be reported for the whole check"
+  assert_contains "$OUT" "reason=model-list-command-failed" "the reason must name the unavailable command"
+  pass "an unavailable model list fails loudly instead of passing quietly"
+}
+
+test_missing_pi_is_skipped_not_failed() {
+  case_dir=$(make_home missing-pi)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  # A reserve this small would be unsafe if the check could run at all, so
+  # silence below is evidence the scope was skipped rather than passed.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":100}}
+EOF
+  fakebin="$TMP_ROOT/missing-pi-bin"
+  mkdir -p "$fakebin"
+  for tool in bash dirname jq awk grep sed cut head tr cat; do
+    ln -sf "$(command -v "$tool")" "$fakebin/$tool"
+  done
+  OUT=
+  STATUS=0
+  OUT=$(PATH="$fakebin" FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        bash "$CHECK" --diagnostics 2>&1) || STATUS=$?
+  expect_code 0 "$STATUS" "a host without pi must not fail the check"
+  [ -z "$OUT" ] || fail "a host without pi must stay silent in diagnostics mode"$'\n'"--- output ---"$'\n'"$OUT"
+  OUT=
+  STATUS=0
+  OUT=$(PATH="$fakebin" FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
+        bash "$CHECK" --all 2>&1) || STATUS=$?
+  expect_code 0 "$STATUS" "a host without pi must stay exit 0 in table mode"
+  assert_contains "$OUT" "reason=pi-not-installed" "--all must say why nothing was judged"
+  pass "a host with no pi installed skips the check instead of failing it"
+}
+
+# --- session-start wiring ---------------------------------------------------
+
+# The digest prints the bootstrap section, so the check reaches firstmate by
+# riding bootstrap's stdout. These two tests drive the real bootstrap through
+# its documented read-only detect pass and assert the digest-visible contract:
+# an actionable line when a scope is unsafe, silence when every scope is safe.
+run_bootstrap_detect() { # <home> <global-json> -> OUT, STATUS
+  local home=$1 global=$2
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" \
+        FM_ROOT_OVERRIDE="$home" \
+        FM_STATE_OVERRIDE="$home/state" \
+        FM_CONFIG_OVERRIDE="$home/config" \
+        FM_DATA_OVERRIDE="$home/data" \
+        FM_PROJECTS_OVERRIDE="$home/projects" \
+        FM_BOOTSTRAP_DETECT_ONLY=1 \
+        FM_BOOTSTRAP_NETWORK=skip \
+        FM_BOOTSTRAP_NETWORK_PHASE=skip \
+        FM_COMPACTION_GLOBAL_SETTINGS="$global" \
+        FM_COMPACTION_MODELS_CMD="cat $MODELS_STUB" \
+        bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null) || STATUS=$?
+}
+
+test_bootstrap_reports_unsafe_scope() {
+  case_dir=$(make_home bootstrap-unsafe)
+  home="$case_dir/home"
+  mkdir -p "$home/projects" "$home/state"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"deepseek","defaultModel":"deepseek-flash","compaction":{"reserveTokens":46072}}
+EOF
+  run_bootstrap_detect "$home" "$case_dir/global.json"
+  assert_contains "$OUT" "COMPACTION: unsafe session=primary" "the digest's bootstrap section must carry the unsafe verdict"
+  assert_contains "$OUT" "reason=trigger-above-limit" "the digest line must carry the reason"
+  pass "the read-only bootstrap detect pass relays the unsafe compaction line into the digest"
+}
+
+test_bootstrap_is_silent_when_every_scope_is_safe() {
+  case_dir=$(make_home bootstrap-safe)
+  home="$case_dir/home"
+  mkdir -p "$home/projects" "$home/state" "$case_dir/sm"
+  # 500000 of a 1M window triggers at 50% for the primary and global scopes, and
+  # the secondmate pin resolves to the same model, so every scope is safe.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"deepseek","defaultModel":"deepseek-flash","compaction":{"reserveTokens":500000}}
+EOF
+  cat > "$home/config/secondmate-harness" <<'EOF'
+pi deepseek-flash
+EOF
+  cat > "$home/data/secondmates.md" <<EOF
+- epsilon - Test secondmate epsilon. (home: $case_dir/sm; scope: testing; projects: none; added 2026-01-01)
+EOF
+  run_bootstrap_detect "$home" "$case_dir/global.json"
+  assert_not_contains "$OUT" "COMPACTION: unsafe" "a safe fleet must not produce an unsafe line"
+  assert_not_contains "$OUT" "COMPACTION: error" "a resolvable fleet must not produce an error line"
+  assert_not_contains "$OUT" "COMPACTION: ok" "the digest must stay quiet about safe scopes"
+  pass "the bootstrap detect pass stays silent when every session scope is safe"
+}
+
+# Live guard: the verdict depends on vendor output, so the parser must also be
+# proven against a real `pi` installation. Self-skips where pi is absent.
+test_real_pi_model_list_resolves() {
+  if ! command -v pi >/dev/null 2>&1; then
+    printf 'skip: pi not found\n'
+    return 0
+  fi
+  local row provider model
+  row=$(pi --no-extensions --offline --list-models 2>/dev/null | awk 'NR > 1 && NF >= 3 { print $1 "|" $2; exit }')
+  if [ -z "$row" ]; then
+    printf 'skip: pi --list-models produced no usable row\n'
+    return 0
+  fi
+  provider=${row%%|*}
+  model=${row#*|}
+  case_dir=$(make_home live-pi)
+  home="$case_dir/home"
+  rmdir "$home/.pi"
+  cat > "$case_dir/global.json" <<EOF
+{"defaultProvider":"$provider","defaultModel":"$model","compaction":{"reserveTokens":1000}}
+EOF
+  OUT=
+  STATUS=0
+  OUT=$(FM_HOME="$home" FM_COMPACTION_PRIMARY_HOME="$home" \
+        FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" bash "$CHECK" 2>&1) || STATUS=$?
+  expect_code 1 "$STATUS" "live-pi: a 1000-token reserve must be reported unsafe"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "model=$provider/$model" "the real model list must resolve the fixture's model"
+  assert_contains "$line" "reserveTokens=1000" "the fixture's reserve must be used"
+  assert_not_contains "$line" "window=-" "the real model list must yield a window"
+  assert_contains "$line" "reason=trigger-above-limit" "a 1000-token reserve must be above the limit"
+  pass "the real pi --list-models output resolves a window through this checker"
+}
+
+test_project_over_global_reserve_wins
+test_global_reserve_used_without_project_settings
+test_builtin_default_reserve_is_named
+test_above_limit_failure_names_every_input
+test_reserve_at_or_above_window_fails
+test_diagnostics_mode_is_silent_when_safe
+test_diagnostics_mode_prints_only_actionable_lines
+test_secondmate_home_project_reserve_wins
+test_non_pi_harness_is_skipped
+test_unknown_model_is_an_error
+test_ambiguous_model_id_is_an_error
+test_model_list_failure_is_reported
+test_missing_pi_is_skipped_not_failed
+test_bootstrap_reports_unsafe_scope
+test_bootstrap_is_silent_when_every_scope_is_safe
+test_real_pi_model_list_resolves
