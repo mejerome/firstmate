@@ -35,7 +35,14 @@
 # scope that deliberately disables compaction never compacts and its reserveTokens
 # is irrelevant. An ABSENT enabled key resolves to pi's own
 # DEFAULT_COMPACTION_SETTINGS default, which is true, so an absent key keeps the
-# reserve judging exactly as before.
+# reserve judging exactly as before. A NON-boolean enabled is a configuration
+# defect, and this checker reports it as an error instead of reproducing pi's
+# coercion: pi resolves it by JS truthiness (settings-manager.js
+# getCompactionEnabled is `this.settings.compaction?.enabled ?? true`, and
+# compaction.js shouldCompact short-circuits on `!settings.enabled`), so null and
+# a truthy value such as "yes" or 1 resolve enabled while 0 and "" resolve
+# disabled. Adopting that coercion would silently guess which of those the
+# operator meant, so the divergence is deliberate and loud rather than silent.
 # Project trust is assumed: pi ignores an untrusted project's settings, and
 # firstmate relies on ~/.pi/agent/trust.json covering its homes (the standing
 # setup carries a "/" entry, which pi's nearest-ancestor lookup applies to every

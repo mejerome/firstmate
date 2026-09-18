@@ -195,6 +195,103 @@ EOF
   pass "compaction.enabled follows project-over-global precedence like reserveTokens"
 }
 
+# --- fail-closed coverage for a non-boolean compaction.enabled ---------------
+#
+# pi's own coercion is JS truthiness: settings-manager.getCompactionEnabled()
+# returns `this.settings.compaction?.enabled ?? true`, then shouldCompact()
+# short-circuits on `!settings.enabled`. So null and every truthy non-boolean
+# resolve enabled, while 0 and "" resolve disabled. This checker deliberately
+# does NOT reproduce that coercion: a non-boolean is a configuration defect, and
+# an error is both the checker's documented contract for an inconsistent input
+# and the fail-closed direction, because a guessed verdict would hide either a
+# mis-sized reserve or the defect itself. These tests fail if the strict arm is
+# relaxed to `ENABLED=$value`, to `ENABLED=false`, to `ENABLED=true`, or to pi's
+# own truthiness.
+
+test_non_boolean_enabled_is_an_error_not_a_silent_coercion() {
+  local case_dir home entry label value
+  local -a shapes=(
+    'null:null'
+    'truthy-string:"yes"'
+    'number-one:1'
+    'number-zero:0'
+    'empty-string:""'
+  )
+  for entry in "${shapes[@]}"; do
+    label=${entry%%:*}
+    value=${entry#*:}
+    case_dir=$(make_home "non-boolean-$label")
+    home="$case_dir/home"
+    cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":true,"reserveTokens":65536}}
+EOF
+    # 100 of 131.1K would be unsafe if judged, so a coercion to enabled is loud.
+    cat > "$home/.pi/settings.json" <<EOF
+{"compaction":{"enabled":$value,"reserveTokens":100}}
+EOF
+    run_check "$home"
+    expect_code 2 "$STATUS" "enabled:$value must be an error, not a guessed verdict"
+    line=$(scope_line primary "$OUT")
+    assert_contains "$line" "COMPACTION: error" "enabled:$value must be reported as an error"
+    assert_contains "$line" "reason=compaction-enabled-is-not-a-boolean" \
+      "enabled:$value must name the non-boolean reason"
+    assert_not_contains "$line" "COMPACTION: ok" "enabled:$value must not be resolved as enabled"
+    assert_not_contains "$line" "COMPACTION: unsafe" "enabled:$value must not be judged by its reserve"
+    assert_not_contains "$line" "COMPACTION: skipped" "enabled:$value must not be resolved as disabled"
+    run_check "$home" --diagnostics
+    expect_code 2 "$STATUS" "enabled:$value must reach the session-start digest"
+    assert_contains "$OUT" "COMPACTION: error session=primary" \
+      "enabled:$value must not be swallowed by diagnostics mode"
+  done
+  pass "a non-boolean compaction.enabled is a visible error, never a silent coercion"
+}
+
+test_global_non_boolean_enabled_errors_for_every_scope() {
+  local case_dir home
+  case_dir=$(make_home global-non-boolean)
+  home="$case_dir/home"
+  # Only the global file carries the setting, so the primary scope and the
+  # global scope both resolve their effective enabled from it and both must
+  # report the defect instead of judging the reserve it sits beside.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":"yes","reserveTokens":100}}
+EOF
+  run_check "$home"
+  expect_code 2 "$STATUS" "a non-boolean in the global file must be an error"
+  assert_contains "$(scope_line primary "$OUT")" "reason=compaction-enabled-is-not-a-boolean" \
+    "the primary scope must report the global defect rather than judge the reserve"
+  assert_contains "$(scope_line global-scope "$OUT")" "reason=compaction-enabled-is-not-a-boolean" \
+    "the global scope must report its own non-boolean enabled"
+  assert_not_contains "$OUT" "COMPACTION: unsafe" "no scope may be judged under a defective enabled"
+  pass "a non-boolean global compaction.enabled errors for every scope instead of being coerced"
+}
+
+test_secondmate_pin_rejects_a_non_boolean_enabled() {
+  local case_dir home
+  case_dir=$(make_home pin-non-boolean)
+  home="$case_dir/home"
+  mkdir -p "$case_dir/sm-z/.pi"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":true,"reserveTokens":65536}}
+EOF
+  cat > "$home/config/secondmate-harness" <<'EOF'
+pi syslog-auto
+EOF
+  cat > "$case_dir/sm-z/.pi/settings.json" <<'EOF'
+{"compaction":{"enabled":"yes","reserveTokens":100}}
+EOF
+  cat > "$home/data/secondmates.md" <<EOF
+- zeta - Test secondmate zeta. (home: $case_dir/sm-z; scope: testing; projects: none; added 2026-01-01)
+EOF
+  run_check "$home"
+  expect_code 2 "$STATUS" "a secondmate home with a non-boolean enabled must be an error"
+  line=$(scope_line secondmate-zeta "$OUT")
+  assert_contains "$line" "COMPACTION: error" "the pinned scope must report the defect"
+  assert_contains "$line" "reason=compaction-enabled-is-not-a-boolean" "the pinned scope must name the reason"
+  assert_not_contains "$line" "COMPACTION: skipped" "the pinned scope must not be silently skipped"
+  pass "a secondmate pin scope rejects a non-boolean enabled instead of coercing it"
+}
+
 test_above_limit_failure_names_every_input() {
   case_dir=$(make_home above-limit)
   home="$case_dir/home"
@@ -645,6 +742,9 @@ test_builtin_default_reserve_is_named
 test_disabled_compaction_scope_is_not_judged_by_its_reserve
 test_disabled_scope_does_not_disarm_a_sibling_guard
 test_project_enabled_true_overrides_global_enabled_false
+test_non_boolean_enabled_is_an_error_not_a_silent_coercion
+test_global_non_boolean_enabled_errors_for_every_scope
+test_secondmate_pin_rejects_a_non_boolean_enabled
 test_above_limit_failure_names_every_input
 test_reserve_at_or_above_window_fails
 test_diagnostics_mode_is_silent_when_safe
