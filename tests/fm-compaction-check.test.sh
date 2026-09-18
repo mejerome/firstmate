@@ -129,6 +129,72 @@ EOF
   pass "the built-in pi default reserve is used and named when no file sets one"
 }
 
+test_disabled_compaction_scope_is_not_judged_by_its_reserve() {
+  case_dir=$(make_home disabled-compaction)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":true,"reserveTokens":65536}}
+EOF
+  # 100 of 131.1K triggers at 99.9%, which would be unsafe if it were judged.
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"enabled":false,"reserveTokens":100}}
+EOF
+  run_check "$home"
+  expect_code 0 "$STATUS" "disabled-compaction: a scope that never compacts must not fail the run"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "COMPACTION: skipped" "the disabled scope must be skipped, not judged"
+  assert_contains "$line" "reason=compaction-disabled" "the skip reason must say compaction is disabled"
+  assert_not_contains "$OUT" "COMPACTION: unsafe" "a disabled scope must never be unsafe"
+  run_check "$home" --diagnostics
+  expect_code 0 "$STATUS" "disabled-compaction: diagnostics must stay non-failing"
+  [ -z "$OUT" ] || fail "a deliberately disabled scope withholds no verdict and must stay silent in diagnostics"$'\n'"--- output ---"$'\n'"$OUT"
+  pass "a scope with compaction disabled is not judged by a reserve pi ignores"
+}
+
+test_disabled_scope_does_not_disarm_a_sibling_guard() {
+  case_dir=$(make_home disabled-sibling)
+  home="$case_dir/home"
+  # The global scope carries no enabled key, so pi's default (enabled) applies
+  # and its unsafe reserve must still fail; the disabled primary must not mask it.
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"reserveTokens":20000}}
+EOF
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"enabled":false,"reserveTokens":100}}
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "disabled-sibling: an absent enabled key must still judge an unsafe reserve"
+  assert_contains "$(scope_line primary "$OUT")" "reason=compaction-disabled" "the disabled scope must be skipped"
+  global_line=$(scope_line global-scope "$OUT")
+  assert_contains "$global_line" "COMPACTION: unsafe" "the sibling scope must still be judged"
+  assert_contains "$global_line" "reason=trigger-above-limit" "the absent enabled key must default to enabled"
+  run_check "$home" --diagnostics
+  expect_code 1 "$STATUS" "disabled-sibling: diagnostics must still surface the sibling"
+  assert_contains "$OUT" "COMPACTION: unsafe session=global-scope" "the sibling must reach the digest"
+  assert_not_contains "$OUT" "session=primary" "the disabled scope must not reach diagnostics"
+  pass "a disabled scope does not disarm the guard for a sibling with an absent enabled key"
+}
+
+test_project_enabled_true_overrides_global_enabled_false() {
+  case_dir=$(make_home enabled-precedence)
+  home="$case_dir/home"
+  cat > "$case_dir/global.json" <<'EOF'
+{"defaultProvider":"syslog-harness","defaultModel":"syslog-auto","compaction":{"enabled":false,"reserveTokens":100}}
+EOF
+  # The project file turns compaction back on, so its unsafe reserve is judged.
+  cat > "$home/.pi/settings.json" <<'EOF'
+{"compaction":{"enabled":true,"reserveTokens":100}}
+EOF
+  run_check "$home"
+  expect_code 1 "$STATUS" "enabled-precedence: a project enabled:true must be judged"
+  line=$(scope_line primary "$OUT")
+  assert_contains "$line" "COMPACTION: unsafe" "the project enabled:true must override the global enabled:false"
+  assert_contains "$line" "reason=trigger-above-limit" "the judged reserve must report its reason"
+  global_line=$(scope_line global-scope "$OUT")
+  assert_contains "$global_line" "reason=compaction-disabled" "the global scope must stay disabled"
+  pass "compaction.enabled follows project-over-global precedence like reserveTokens"
+}
+
 test_above_limit_failure_names_every_input() {
   case_dir=$(make_home above-limit)
   home="$case_dir/home"
@@ -576,6 +642,9 @@ EOF
 test_project_over_global_reserve_wins
 test_global_reserve_used_without_project_settings
 test_builtin_default_reserve_is_named
+test_disabled_compaction_scope_is_not_judged_by_its_reserve
+test_disabled_scope_does_not_disarm_a_sibling_guard
+test_project_enabled_true_overrides_global_enabled_false
 test_above_limit_failure_names_every_input
 test_reserve_at_or_above_window_fails
 test_diagnostics_mode_is_silent_when_safe

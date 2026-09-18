@@ -29,7 +29,13 @@
 #                  config/secondmate-harness pin ("<harness> [<model>] [<effort>]").
 # A session's model follows pi's own settings precedence: the session cwd's
 # .pi/settings.json over the global settings.json, merged key by key. The
-# effective reserveTokens follows the same precedence over the same pair.
+# effective reserveTokens follows the same precedence over the same pair, and so
+# does the effective compaction.enabled. That flag decides whether the reserve is
+# judged at all: pi's shouldCompact returns false when enabled is false, so a
+# scope that deliberately disables compaction never compacts and its reserveTokens
+# is irrelevant. An ABSENT enabled key resolves to pi's own
+# DEFAULT_COMPACTION_SETTINGS default, which is true, so an absent key keeps the
+# reserve judging exactly as before.
 # Project trust is assumed: pi ignores an untrusted project's settings, and
 # firstmate relies on ~/.pi/agent/trust.json covering its homes (the standing
 # setup carries a "/" entry, which pi's nearest-ancestor lookup applies to every
@@ -61,7 +67,9 @@
 #   unsafe    trigger point is above the limit (reason=trigger-above-limit), or
 #             the reserve is not below the window at all
 #             (reason=reserve-not-below-window), which compacts every turn
-#   skipped   no verdict is needed here: a non-pi harness, or no pi installed
+#   skipped   no verdict is needed here: a non-pi harness, no pi installed, or a
+#             scope whose effective compaction.enabled is false, which pi
+#             short-circuits before the reserve is ever consulted
 #   error     the scope has a verdict to give but an input is missing, absent,
 #             or inconsistent
 # --diagnostics is the session-start digest's view. It prints every unsafe line
@@ -94,6 +102,12 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 DEFAULT_MAX_TRIGGER_PERCENT=60
 DEFAULT_MODELS_ATTEMPTS=3
 PI_DEFAULT_RESERVE_TOKENS=16384
+# pi's own DEFAULT_COMPACTION_SETTINGS is
+# {enabled: true, reserveTokens: 16384, keepRecentTokens: 20000}, read from
+# @earendil-works/pi-coding-agent 0.85.1
+# dist/bundle/chunks/chunk-JVUZSMYM.js. Its shouldCompact short-circuits on
+# enabled, so an absent key must default to enabled and keep the reserve judging.
+PI_DEFAULT_COMPACTION_ENABLED=true
 CONFIG_DIR_NAME=.pi
 
 MODE=all
@@ -394,6 +408,35 @@ effective_reserve() {
   return 0
 }
 
+# effective_enabled -> ENABLED ENABLED_ERROR
+# Effective compaction.enabled for the cwd whose settings are loaded: the project
+# value when that file sets it, else the global value, else pi's built-in default.
+# Same project-over-global precedence as effective_reserve.
+effective_enabled() {
+  local has_project has_global value
+  ENABLED=
+  ENABLED_ERROR=
+  has_project=$(printf '%s' "$PROJECT_JSON" | jq -r \
+    'if (.compaction? | type) == "object" then (.compaction | has("enabled")) else false end')
+  has_global=$(printf '%s' "$GLOBAL_JSON" | jq -r \
+    'if (.compaction? | type) == "object" then (.compaction | has("enabled")) else false end')
+  if [ "$has_project" = true ]; then
+    value=$(printf '%s' "$PROJECT_JSON" | jq -r '.compaction.enabled')
+  elif [ "$has_global" = true ]; then
+    value=$(printf '%s' "$GLOBAL_JSON" | jq -r '.compaction.enabled')
+  else
+    value=$PI_DEFAULT_COMPACTION_ENABLED
+  fi
+  case "$value" in
+    true | false) ENABLED=$value ;;
+    *)
+      ENABLED_ERROR="compaction-enabled-is-not-a-boolean"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 # --- scope table ------------------------------------------------------------
 
 # Every scope is collected before any window is resolved, so an incomplete model
@@ -425,6 +468,17 @@ add_scope_from_settings() {
   model_source=${MODEL_SOURCE:--}
   if [ "$model" = "-" ]; then
     error_reason="no-model-configured"
+  fi
+  # Resolve enabled before the reserve: a scope pi will never compact must not be
+  # judged by a reserve pi ignores. A disabled scope is recorded as skipped.
+  if [ "$error_reason" = - ]; then
+    if effective_enabled; then
+      if [ "$ENABLED" = false ]; then
+        error_reason="compaction-disabled"
+      fi
+    else
+      error_reason=$ENABLED_ERROR
+    fi
   fi
   if [ "$error_reason" = - ]; then
     if effective_reserve; then
@@ -477,6 +531,15 @@ add_scope_from_pin() {
     model_source=${MODEL_SOURCE:--}
     if [ "$model" = - ]; then
       error_reason="no-model-configured"
+    fi
+  fi
+  if [ "$error_reason" = - ]; then
+    if effective_enabled; then
+      if [ "$ENABLED" = false ]; then
+        error_reason="compaction-disabled"
+      fi
+    else
+      error_reason=$ENABLED_ERROR
     fi
   fi
   if [ "$error_reason" = - ]; then
@@ -563,6 +626,10 @@ emit_scopes() {
       print_line skipped "$name" "$cwd" - - - "$model_source" harness-not-pi
       continue
     fi
+    if [ "$error_reason" = compaction-disabled ]; then
+      print_line skipped "$name" "$cwd" "$model_display" - - "$model_source" compaction-disabled
+      continue
+    fi
     if [ "$error_reason" != - ]; then
       print_line error "$name" "$cwd" "$model_display" - - "$model_source" "$error_reason"
       continue
@@ -610,6 +677,12 @@ else
   global_model=$(printf '%s' "$GLOBAL_JSON" | jq -r '.defaultModel // empty')
   if [ -z "$global_model" ]; then
     add_scope_record global-scope - "${global_provider:--}" - "$GLOBAL_SETTINGS" - - no-model-configured - - - -
+  elif ! effective_enabled; then
+    add_scope_record global-scope - "${global_provider:--}" "$global_model" \
+      "$GLOBAL_SETTINGS" - - "$ENABLED_ERROR" - - - -
+  elif [ "$ENABLED" = false ]; then
+    add_scope_record global-scope - "${global_provider:--}" "$global_model" \
+      "$GLOBAL_SETTINGS" - - compaction-disabled - - - -
   else
     reserve=$PI_DEFAULT_RESERVE_TOKENS
     reserve_source="builtin-pi-default"
