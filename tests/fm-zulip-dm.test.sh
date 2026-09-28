@@ -8,6 +8,14 @@ set -u
 SCRIPT="$ROOT/bin/fm-zulip-dm.sh"
 TMP_ROOT=$(fm_test_tmproot fm-zulip-dm)
 
+# Defence in depth: these failure cases point FM_ZULIP_CREDENTIAL_FILE at temp
+# files so nothing real on the host is moved or replaced. The trap is a safety
+# net only; in the normal path it should have nothing to restore.
+cleanup_zulip_dm() {
+    rm -rf "$TMP_ROOT"
+}
+trap cleanup_zulip_dm EXIT
+
 # --- helper: create a message file for testing ---
 create_message_file() {
     local dir=$1 label=$2
@@ -24,21 +32,15 @@ test_missing_credential_file() {
     local msg_file
     msg_file=$(create_message_file "$case_dir" "missing-cred-file")
 
-    # Temporarily move the real credential file away
-    local real_cred="/root/.pi/agent/extensions/zulip/.env"
+    # Point the credential file at a path that does not exist (nothing real moved)
+    local fake_cred="$case_dir/absent.env"
     local rc=0
     local output
-    if [ -f "$real_cred" ]; then
-        mv "$real_cred" "$case_dir/.env.real"
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-        mv "$case_dir/.env.real" "$real_cred"
-    else
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-    fi
+    output=$(FM_ZULIP_CREDENTIAL_FILE="$fake_cred" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 1 "$rc" "missing credential file must exit 1"
     assert_contains "$output" "missing credential file" "error message must name the missing file"
-    assert_contains "$output" "/root/.pi/agent/extensions/zulip/.env" "error message must contain the credential file path"
+    assert_contains "$output" "$fake_cred" "error message must contain the credential file path"
     pass "script fails loudly when credential file is absent"
 }
 
@@ -51,24 +53,13 @@ test_missing_credential_variable() {
     local msg_file
     msg_file=$(create_message_file "$case_dir" "missing-var")
 
-    # Create a credential file without the required variable
+    # Create a credential file without the required variable (nothing real moved)
     local tmp_env="$case_dir/.env"
     printf '# comment\nOTHER_VAR=something\n' > "$tmp_env"
 
-    # Temporarily replace the credential file
-    local real_cred="/root/.pi/agent/extensions/zulip/.env"
-    if [ -f "$real_cred" ]; then
-        mv "$real_cred" "$case_dir/.env.real"
-        cp "$tmp_env" "$real_cred"
-        local rc=0
-        local output
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-        mv "$case_dir/.env.real" "$real_cred"
-    else
-        local rc=0
-        local output
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-    fi
+    local rc=0
+    local output
+    output=$(FM_ZULIP_CREDENTIAL_FILE="$tmp_env" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 1 "$rc" "missing credential variable must exit 1"
     assert_contains "$output" "missing credential variable ABIBA_ZULIP_API_KEY" "error message must name the missing variable"
@@ -84,24 +75,13 @@ test_empty_credential_variable() {
     local msg_file
     msg_file=$(create_message_file "$case_dir" "empty-var")
 
-    # Create a credential file with an empty variable
+    # Create a credential file with an empty variable (nothing real moved)
     local tmp_env="$case_dir/.env"
     printf '# comment\nABIBA_ZULIP_API_KEY=\n' > "$tmp_env"
 
-    # Temporarily replace the credential file
-    local real_cred="/root/.pi/agent/extensions/zulip/.env"
-    if [ -f "$real_cred" ]; then
-        mv "$real_cred" "$case_dir/.env.real"
-        cp "$tmp_env" "$real_cred"
-        local rc=0
-        local output
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-        mv "$case_dir/.env.real" "$real_cred"
-    else
-        local rc=0
-        local output
-        output=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-    fi
+    local rc=0
+    local output
+    output=$(FM_ZULIP_CREDENTIAL_FILE="$tmp_env" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 1 "$rc" "empty credential variable must exit 1"
     assert_contains "$output" "credential variable ABIBA_ZULIP_API_KEY is empty" "error message must indicate the variable is empty"

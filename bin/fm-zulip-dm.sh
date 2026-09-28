@@ -15,7 +15,9 @@
 set -euo pipefail
 
 # --- Credential ---
-ZULIP_CREDENTIAL_FILE="/root/.pi/agent/extensions/zulip/.env"
+# Override the credential file location via FM_ZULIP_CREDENTIAL_FILE (used by tests
+# to point at a temp file so no real host file is ever moved or replaced).
+ZULIP_CREDENTIAL_FILE="${FM_ZULIP_CREDENTIAL_FILE:-/root/.pi/agent/extensions/zulip/.env}"
 ZULIP_CREDENTIAL_VAR="ABIBA_ZULIP_API_KEY"
 
 # Default bot identity
