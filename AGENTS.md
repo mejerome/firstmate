@@ -111,6 +111,17 @@ An ask-user finding returns as `needs-decision`; firstmate loads `ask-user-autho
 
 Judge validation by attributed run step through `bin/fm-crew-state.sh`.
 
+### Verify before acting on any deliverable
+
+Workers and scouts run on the local model pool, so their output is lower-confidence than it reads.
+Treat every finding as a claim: a headline can be true while its stated escalation path is false, a fix
+can be right for the wrong reason, and a claim can fail to reproduce entirely.
+Before relaying a finding or acting on it, re-derive every load-bearing claim at its authority,
+preferring a different method than the one that produced it. Two independent methods agreeing is the
+standard; one method repeated is not.
+Verification that only agrees is worth less than verification that catches something - report what was
+confirmed, corrected, and refuted separately.
+
 ### PR ready, landing, and teardown
 
 For PR-based ship: `no-mistakes` reports `done: PR <url> checks green` after CI green; `direct-PR` reports `done: PR <url>` after opening PR. Run `bin/fm-pr-check.sh <id> <PR url>` to arm merge poll. Tell captain PR URL, outcome, risk level.
