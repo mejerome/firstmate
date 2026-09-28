@@ -134,20 +134,10 @@ SH
 SH
     chmod +x "$fakejq"
 
-    # Temporarily replace the real curl by using PATH (leave credential intact)
-    local real_curl="/usr/bin/curl"
-
-    if [ -f "$real_curl" ]; then
-        mv "$real_curl" "$case_dir/curl.real"
-        local rc=0
-        local output
-        output=$(PATH="$case_dir:$PATH" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-        mv "$case_dir/curl.real" "$real_curl"
-    else
-        local rc=0
-        local output
-        output=$(PATH="$case_dir:$PATH" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
-    fi
+    # Use PATH to select fake curl (no need to move the system binary)
+    local rc=0
+    local output
+    output=$(PATH="$case_dir:$PATH" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 1 "$rc" "invalid API response must exit 1"
     assert_contains "$output" "failed to send message" "error message must indicate send failure"
@@ -174,7 +164,8 @@ test_live_send() {
     message_id=$(bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 0 "$rc" "live send must succeed"
-    assert_contains "$message_id" "" "message ID must be printed"
+    [ -n "$message_id" ] || fail "live send message ID must be printed"
+    [[ "$message_id" =~ ^[0-9]+$ ]] || fail "message ID must be numeric: $message_id"
     pass "live Zulip DM sent successfully"
 }
 
