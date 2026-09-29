@@ -747,10 +747,16 @@ done
 # 3. Emit. With no usable list at all the whole check is unjudgeable, so that
 #    case is one bounded line rather than one line per scope.
 if [ "$MODEL_TABLE_READY" -eq 0 ]; then
-  if [ "$MODELS_UNAVAILABLE_REASON" = pi-not-installed ]; then
-    print_line skipped all - - - - "${MODELS_CMD%% *}" pi-not-installed
-    exit 0
-  fi
+  case "$MODELS_UNAVAILABLE_REASON" in
+    pi-not-installed|model-list-empty)
+      # An empty model list is a legitimate state on a host with no configured
+      # providers (or a pi install that has not been pointed at a provider yet).
+      # Reporting it as `error` is a false alarm: the check simply cannot
+      # resolve a model, which is the same situation as pi-not-installed.
+      print_line skipped all - - - - "${MODELS_CMD%% *}" "$MODELS_UNAVAILABLE_REASON"
+      exit 0
+      ;;
+  esac
   print_line error all - - - - "$MODELS_CMD" "$MODELS_UNAVAILABLE_REASON"
   exit 2
 fi
