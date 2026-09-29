@@ -115,9 +115,13 @@ SH
     chmod +x "$fakejq"
 
     # Use PATH to select fake curl (no need to move the system binary)
+    # and FM_ZULIP_CREDENTIAL_FILE to point at a fake credential file
+    local fakecred="$case_dir/cred.env"
+    printf '%s\n' 'ABIBA_ZULIP_API_KEY=test-key' > "$fakecred"
+
     local rc=0
     local output
-    output=$(PATH="$case_dir:$PATH" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
+    output=$(PATH="$case_dir:$PATH" FM_ZULIP_CREDENTIAL_FILE="$fakecred" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
     expect_code 1 "$rc" "invalid API response must exit 1"
     assert_contains "$output" "failed to send message" "error message must indicate send failure"
