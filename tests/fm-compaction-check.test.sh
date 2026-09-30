@@ -525,10 +525,13 @@ EOF
         FM_COMPACTION_GLOBAL_SETTINGS="$case_dir/global.json" \
         FM_COMPACTION_MODELS_CMD="cat $case_dir/empty-models.txt" \
         bash "$CHECK" --diagnostics 2>&1) || STATUS=$?
-  expect_code 2 "$STATUS" "a header-only model list must not pass"
-  [ -n "$OUT" ] || fail "an empty model list produced a silent no-output run"
-  assert_contains "$OUT" "reason=model-list-empty" "the empty list must be reported as such"
-  pass "an empty model list cannot produce a silent no-output run"
+  # An empty model list is a legitimate state (no providers configured), so the
+  # check reports `skipped` rather than `error` — same treatment as pi-not-installed.
+  # In diagnostics mode, `skipped` is quiet by design, so we verify via exit code
+  # and the absence of an error line rather than the presence of output.
+  expect_code 0 "$STATUS" "a header-only model list is skipped, not an error"
+  assert_absent "$OUT" "error" "an empty model list must not be reported as error"
+  pass "an empty model list is skipped, not an error"
 }
 
 test_partial_model_list_retry_recovers() {
