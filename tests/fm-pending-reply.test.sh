@@ -32,6 +32,7 @@
 #  17. Recovery and escalation grace are measured from the relevant turn's
 #      completion, never from delivery or send time, and each takes one fresh,
 #      uncached status read - accepting any verb - immediately before firing
+#  18. Keyed corr-<id> acknowledgment variant matches; missed escalation stays guarded
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1039,6 +1040,32 @@ test_delivery_confirmation_serializes_with_reconciliation() {
   pass "delivery confirmation serializes with reconciliation"
 }
 
+test_keyed_corr_variant_acknowledges() {
+  local corr other
+  corr=$(fm_pending_reply_new_id)
+  other=$(fm_pending_reply_new_id)
+  # Canonical corr=<id> token must still match through the public matcher.
+  fm_pending_reply_text_has_corr "done [corr=$corr]: ledger clean" "$corr" \
+    || fail "canonical corr=<id> token must match"
+  # Keyed done [key=corr-<id>] acknowledgment must now match.
+  fm_pending_reply_text_has_corr "done [key=corr-$corr]: ledger clean" "$corr" \
+    || fail "keyed corr-<id> variant must match"
+  # Wrong id with both separators must not match.
+  if fm_pending_reply_text_has_corr "done [corr=$other]: wrong id" "$corr"; then
+    fail "wrong id with corr= must not match"
+  fi
+  if fm_pending_reply_text_has_corr "done [key=corr-$other]: wrong id" "$corr"; then
+    fail "wrong id with keyed corr- variant must not match"
+  fi
+  # The parent's own pending-reply-missed escalation must never self-resolve.
+  if fm_pending_reply_line_resolves \
+    "blocked [key=pending-reply-$corr]: pending-reply-missed: task=hibit pending-reply-id=$corr request=status" \
+    "$corr"; then
+    fail "parent pending-reply-missed escalation must not self-resolve"
+  fi
+  pass "keyed corr-<id> acknowledgment resolves; missed escalation stays guarded"
+}
+
 test_unrelated_and_stale_corr_cannot_resolve() {
   local home state corr other
   home=$(setup_parent stale-corr)
@@ -2017,6 +2044,7 @@ test_undelivered_records_are_scan_immutable
 test_delivery_confirmation_fallback_reconciles
 test_delivery_confirmation_serializes_with_reconciliation
 test_unrelated_and_stale_corr_cannot_resolve
+test_keyed_corr_variant_acknowledges
 test_restart_preserves_expectation_and_parent_destination
 test_wrong_home_detected_not_acknowledged
 test_unmarked_captain_input_creates_no_expectation

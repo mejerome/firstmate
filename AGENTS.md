@@ -242,6 +242,17 @@ After an autonomous merge, give the captain a one-line full-URL or local-main ou
 
 Load `validation-supervision` when a ship starts or already has an active no-mistakes validation run, including a mid-run requirement change or finding.
 
+### Verify before acting on any deliverable
+
+Workers and scouts run on the local model pool, so their output is lower-confidence than it reads.
+Treat every finding as a claim: a headline can be true while its stated escalation path is false, a fix
+can be right for the wrong reason, and a claim can fail to reproduce entirely.
+Before relaying a finding or acting on it, re-derive every load-bearing claim at its authority,
+preferring a different method than the one that produced it. Two independent methods agreeing is the
+standard; one method repeated is not.
+Verification that only agrees is worth less than verification that catches something - report what was
+confirmed, corrected, and refuted separately.
+
 ### PR ready, landing, and teardown
 
 Load `ship-landing` when a ship reports a PR or ready branch, when deciding or monitoring landing, and before task cleanup.
