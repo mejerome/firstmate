@@ -779,6 +779,81 @@ JS
   pass "Pi provider preflight owns one generation-bound startup prerequisite with deterministic fallback, replacement, cancellation, timeout, and truncation"
 }
 
+# A secondmate home must not receive the firstmate session-start digest, while
+# the primary home keeps it and the secondmate still runs the startup hook so
+# it can acquire its lock and arm its own supervision.
+test_pi_secondmate_home_suppresses_sessionstart_digest() {
+  local base primary secondmate out status=0
+  command -v node >/dev/null 2>&1 || {
+    echo "skip: node not found for Pi secondmate session-start suppression test"
+    return 0
+  }
+  base="$TMP_ROOT/pi-secondmate-sessionstart"
+  primary="$base/primary"
+  secondmate="$base/secondmate"
+  local home
+  for home in "$primary" "$secondmate"; do
+    mkdir -p "$home/.pi/extensions/lib" "$home/bin" "$home/state"
+    cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$home/.pi/extensions/"
+    cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
+      "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$home/.pi/extensions/lib/"
+    cp "$ROOT/bin/fm-operational-input.sh" "$home/bin/"
+    cat > "$home/bin/fm-sessionstart-run.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'ran\n' > "${FM_HOME:?}/state/runner"
+printf 'GENERATION_DIGEST source=%s\n' "${2:-}"
+SH
+    cat > "$home/bin/fm-turnend-guard.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$home/bin/"*.sh
+  done
+  printf 'sm-sessionstart\n' > "$secondmate/.fm-secondmate-home"
+
+  run_pi_sessionstart_case() {  # <home> delivered|suppressed
+    local home=$1 expect=$2 case_out
+    case_out=$(EXT="$home/.pi/extensions/fm-primary-turnend-guard.ts" \
+      FM_HOME="$home" FM_ROOT_OVERRIDE="$home" EXPECT="$expect" \
+      node --input-type=module 2>&1 <<'JS'
+import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  sendMessage() {},
+  registerCommand() {},
+  registerTool() {},
+  events: { on() {} },
+};
+const extension = await import(`${pathToFileURL(process.env.EXT).href}?home=${encodeURIComponent(process.env.FM_HOME)}`);
+extension.default(pi);
+const ctx = {
+  sessionManager: {
+    getHeader: () => ({ timestamp: new Date().toISOString() }),
+    getSessionId: () => "sm-sessionstart",
+  },
+};
+handlers.get("session_start")({ reason: "startup" }, ctx);
+const result = await handlers.get("before_agent_start")({ prompt: "probe" }, ctx);
+const delivered = Boolean(
+  result && result.message && String(result.message.content).includes("GENERATION_DIGEST"),
+);
+const ran = existsSync(`${process.env.FM_HOME}/state/runner`);
+if (process.env.EXPECT === "delivered" && !delivered) throw new Error("primary home did not receive the session-start digest");
+if (process.env.EXPECT === "suppressed" && delivered) throw new Error("secondmate home received the session-start digest");
+if (!ran) throw new Error("session-start hook did not run");
+JS
+    ) || status=$?
+    [ -z "$case_out" ] || fail "Pi secondmate session-start suppression case failed: $case_out"
+  }
+
+  run_pi_sessionstart_case "$primary" delivered
+  run_pi_sessionstart_case "$secondmate" suppressed
+  expect_code 0 "$status" "Pi secondmate session-start suppression"
+  pass "Pi suppresses the firstmate session-start digest in a secondmate home while still running the startup hook, and leaves the primary unchanged"
+}
+
 test_pi_reload_releases_sessionstart_exit_listener() {
   local fixture out status=0
   command -v node >/dev/null 2>&1 || {
@@ -1118,5 +1193,6 @@ test_run_reports_a_state_dir_it_cannot_create
 test_run_reports_a_failed_session_start_as_digest_text
 test_pi_startup_classifies_cli_continuations
 test_pi_sessionstart_generation_prerequisite
+test_pi_secondmate_home_suppresses_sessionstart_digest
 test_pi_reload_releases_sessionstart_exit_listener
 test_pi_large_sessionstart_digest_is_delivered_loudly

@@ -292,6 +292,8 @@ An eligible native failure or empty result settles before the extension returns 
 So native and manual startup never run concurrently.
 
 An intentional gate or non-primary stand-down returns no message.
+A secondmate home is one such no-message case: the durable `.fm-secondmate-home` marker at the home root, the same marker `bin/fm-primary-scope-lib.sh` validates, makes the extension run the startup hook but return no message, so the home still acquires its lock and can arm its own supervision while the firstmate digest no longer displaces the secondmate's launch brief and steering inbox.
+A primary home carries no such marker, so its delivery is unchanged.
 Context-preserving sources retain their existing silent result when the current process already holds the lock.
 
 Manual and automatic compaction retain the existing persistent delivery path, because an automatic retry may have no new `before_agent_start`.
@@ -364,6 +366,7 @@ So the source is derived following the Cursor precedent:
 
 A later in-process `clear` re-emits only when this lock owner completed a full startup.
 `before_agent_start` message delivery was verified to reach model context on 18.1.11.
+The same secondmate no-message rule applies here: a home carrying the durable `.fm-secondmate-home` marker runs the startup hook but receives no digest ([Pi message delivery](#pi-message-delivery) owns the rule).
 
 ### Cursor compaction
 
@@ -416,6 +419,7 @@ Through the extension's public event surface, the same portable suite proves:
 - Wrapper timeout output.
 - Truncation.
 - Ineligible stand-down.
+- Secondmate-home digest suppression with the startup hook still run.
 - Compaction cancellation.
 
 ### Runtime bound test
