@@ -518,6 +518,40 @@ EOF
   pass ".omp turn-end guard: digest delivery, seatbelt block, one compelled continuation, flagged stop stands down"
 }
 
+test_turnend_guard_extension_suppresses_sessionstart_in_secondmate_home() {
+  local repo home out status=0
+  repo="$TMP_ROOT/guard/secondmate-repo"; home="$TMP_ROOT/guard/secondmate-home"
+  install_omp_extension_fixture "$repo"
+  mkdir -p "$home/state"
+  printf 'sm-omp-sessionstart\n' > "$home/.fm-secondmate-home"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/bin/fm-turnend-guard.sh"
+  cat > "$repo/bin/fm-sessionstart-run.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'ran\n' > "${FM_HOME:?}/state/runner"
+printf 'OMP DIGEST source=%s\n' "${2:-}"
+SH
+  chmod +x "$repo/bin/"*.sh
+  out=$(FM_HOME="$home" EXT="$repo/.omp/extensions/fm-primary-turnend-guard.ts" node --input-type=module 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+const handlers = new Map();
+const pi = { on(e, h) { handlers.set(e, h); }, sendMessage() {} };
+const mod = await import(pathToFileURL(process.env.EXT).href);
+mod.default(pi);
+const ctx = { sessionManager: { getSessionId: () => "s-sm" } };
+handlers.get("session_start")({ type: "session_start" }, ctx);
+const res = await handlers.get("before_agent_start")({ type: "before_agent_start", prompt: "hi" }, ctx);
+if (res && res.message) throw new Error(`secondmate home received the session-start digest: ${JSON.stringify(res)}`);
+if (!existsSync(`${process.env.FM_HOME}/state/runner`)) throw new Error("session-start hook did not run in the secondmate home");
+await handlers.get("session_shutdown")({}, {});
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "omp turn-end guard secondmate session-start suppression: $out"
+  [ -z "$out" ] || fail "omp secondmate suppression test printed output: $out"
+  pass ".omp turn-end guard: a secondmate home runs the startup hook but receives no firstmate session-start digest"
+}
+
 test_watch_extension_arms_and_delivers() {
   local repo home out status
   repo="$TMP_ROOT/watch/repo"; home="$TMP_ROOT/watch/home"
@@ -870,6 +904,7 @@ test_busy_extension_lifecycle
 test_control_composer_and_model_tables
 test_ownership_proof_is_omp_keyed
 test_turnend_guard_extension_compels_one_continuation
+test_turnend_guard_extension_suppresses_sessionstart_in_secondmate_home
 test_watch_extension_arms_and_delivers
 test_watch_extension_runs_the_supervision_host
 test_watch_extension_runs_the_supervision_host quiet

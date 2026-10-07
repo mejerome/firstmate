@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -58,6 +58,30 @@ function markLoaded(): void {
   if (!existsSync(state) || lockOwnership() === "other") return;
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
+
+// A secondmate home carries the durable `.fm-secondmate-home` marker that
+// secondmate provisioning writes at the home root; a primary home never has
+// one. Read that on-disk fact rather than FM_HOME, because every home sets
+// FM_HOME to itself. The marker validation mirrors bin/fm-primary-scope-lib.sh:
+// a symlink, a missing file, or an invalid first line is not a marker.
+function homeIsSecondmate(root: string): boolean {
+  const markerPath = `${root}/.fm-secondmate-home`;
+  try {
+    if (lstatSync(markerPath).isSymbolicLink()) return false;
+    const id = readFileSync(markerPath, "utf8").split(/\r?\n/, 1)[0].replace(/\s+/g, "");
+    return id.length > 0 && /^[A-Za-z0-9._-]+$/.test(id);
+  } catch {
+    return false;
+  }
+}
+
+// A secondmate session is launched with its own brief and steering inbox, so
+// the firstmate session-start digest must not be injected into it. The startup
+// hook still runs so the home acquires its lock and can arm its own
+// supervision; only message delivery is suppressed. The primary home is
+// unchanged, because it carries no secondmate marker.
+const sessionstartSuppressed =
+  homeIsSecondmate(root) || (fmHome !== root && homeIsSecondmate(fmHome));
 
 // Pi's session_start reasons are startup | reload | new | resume | fork, and a
 // separate session_compact event fires after a compaction. "new" is Pi's /new
@@ -407,6 +431,7 @@ function sessionstartMessage(
   generation: SessionstartGeneration,
   result: SessionstartResult,
 ): SessionstartMessage | undefined {
+  if (sessionstartSuppressed) return undefined;
   let raw = result.kind === "ready" ? result.raw : "";
   if (!raw && result.kind === "failed") {
     raw = sessionstartManualFallback;
