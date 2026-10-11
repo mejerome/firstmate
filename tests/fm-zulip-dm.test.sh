@@ -5,7 +5,10 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-SCRIPT="$ROOT/bin/fm-zulip-dm.sh"
+# The script under test. FM_ZULIP_DM_SCRIPT exists so this suite can prove it
+# bites: pointing it at a silent no-op (e.g. /bin/true) must make the failure
+# assertions below fail, which is the exact defect the helper exists to prevent.
+SCRIPT="${FM_ZULIP_DM_SCRIPT:-$ROOT/bin/fm-zulip-dm.sh}"
 TMP_ROOT=$(fm_test_tmproot fm-zulip-dm)
 
 # Defence in depth: these failure cases point FM_ZULIP_CREDENTIAL_FILE at temp
@@ -88,34 +91,25 @@ test_empty_credential_variable() {
     pass "script fails loudly when credential variable is empty"
 }
 
-# --- failure path: invalid API response (no message id) ---
-test_invalid_api_response() {
+# --- failure path: API refuses the send (Zulip error JSON) ---
+# Uses the real jq so this exercises the helper's actual response handling: a
+# Zulip refusal carries no top-level "id", so the helper must exit non-zero and
+# surface the API's own reason.
+test_api_error_response() {
     local case_dir
-    case_dir="$TMP_ROOT/invalid-response"
+    case_dir="$TMP_ROOT/api-error"
     mkdir -p "$case_dir"
 
     local msg_file
-    msg_file=$(create_message_file "$case_dir" "invalid-response")
+    msg_file=$(create_message_file "$case_dir" "api-error")
 
-    # Create a fake curl that returns invalid JSON
     local fakecurl="$case_dir/curl"
     cat > "$fakecurl" <<'SH'
 #!/usr/bin/env bash
-# Return invalid JSON that jq cannot parse
-printf '%s\n' '{"broken": "json"}'
+printf '%s\n' '{"result":"error","code":"INVALID_API_KEY","msg":"Invalid API key"}'
 SH
     chmod +x "$fakecurl"
 
-    # Create a fake jq that returns nothing
-    local fakejq="$case_dir/jq"
-    cat > "$fakejq" <<'SH'
-#!/usr/bin/env bash
-# Return nothing (simulating jq failure)
-SH
-    chmod +x "$fakejq"
-
-    # Use PATH to select fake curl (no need to move the system binary)
-    # and FM_ZULIP_CREDENTIAL_FILE to point at a fake credential file
     local fakecred="$case_dir/cred.env"
     printf '%s\n' 'ABIBA_ZULIP_API_KEY=test-key' > "$fakecred"
 
@@ -123,9 +117,98 @@ SH
     local output
     output=$(PATH="$case_dir:$PATH" FM_ZULIP_CREDENTIAL_FILE="$fakecred" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
 
-    expect_code 1 "$rc" "invalid API response must exit 1"
+    expect_code 1 "$rc" "API refusal must exit 1"
     assert_contains "$output" "failed to send message" "error message must indicate send failure"
-    pass "script fails loudly when API returns invalid response"
+    assert_contains "$output" "Invalid API key" "error message must surface the API's own reason"
+    pass "script fails loudly when the API refuses the send"
+}
+
+# --- failure path: curl cannot reach the API ---
+test_curl_failure() {
+    local case_dir
+    case_dir="$TMP_ROOT/curl-failure"
+    mkdir -p "$case_dir"
+
+    local msg_file
+    msg_file=$(create_message_file "$case_dir" "curl-failure")
+
+    local fakecurl="$case_dir/curl"
+    cat > "$fakecurl" <<'SH'
+#!/usr/bin/env bash
+exit 7
+SH
+    chmod +x "$fakecurl"
+
+    local fakecred="$case_dir/cred.env"
+    printf '%s\n' 'ABIBA_ZULIP_API_KEY=test-key' > "$fakecred"
+
+    local rc=0
+    local output
+    output=$(PATH="$case_dir:$PATH" FM_ZULIP_CREDENTIAL_FILE="$fakecred" bash "$SCRIPT" "$msg_file" 2>&1) || rc=$?
+
+    expect_code 1 "$rc" "curl failure must exit 1"
+    assert_contains "$output" "curl failed to reach Zulip API" "error message must state the network failure"
+    pass "script fails loudly when curl cannot reach the API"
+}
+
+# --- failure path: non-numeric recipient ---
+test_invalid_to() {
+    local case_dir
+    case_dir="$TMP_ROOT/bad-to"
+    mkdir -p "$case_dir"
+
+    local msg_file
+    msg_file=$(create_message_file "$case_dir" "bad-to")
+
+    local fakecred="$case_dir/cred.env"
+    printf '%s\n' 'ABIBA_ZULIP_API_KEY=test-key' > "$fakecred"
+
+    local rc=0
+    local output
+    output=$(FM_ZULIP_CREDENTIAL_FILE="$fakecred" bash "$SCRIPT" "$msg_file" --to mumuni-bot 2>&1) || rc=$?
+
+    expect_code 1 "$rc" "non-numeric --to must exit 1"
+    assert_contains "$output" "invalid --to user id" "error message must explain the bad recipient"
+    pass "script fails loudly on a non-numeric recipient"
+}
+
+# --- success path: a body from stdin survives untouched ---
+# Uses a fake curl that records the body file the helper hands it, so this
+# proves both that stdin is accepted and that shell metacharacters survive.
+test_stdin_body() {
+    local case_dir
+    case_dir="$TMP_ROOT/stdin-body"
+    mkdir -p "$case_dir"
+
+    local fakecurl="$case_dir/curl"
+    cat > "$fakecurl" <<'SH'
+#!/usr/bin/env bash
+while [ $# -gt 0 ]; do
+    case "$1" in
+        content@*) cat "${1#content@}" >"$FM_TEST_CAPTURE" ;;
+    esac
+    shift
+done
+printf '%s\n' '{"id": 424242}'
+SH
+    chmod +x "$fakecurl"
+
+    local fakecred="$case_dir/cred.env"
+    printf '%s\n' 'ABIBA_ZULIP_API_KEY=test-key' > "$fakecred"
+
+    local rc=0
+    local output
+    # shellcheck disable=SC2016 # the shell metacharacters are literal body text, not to expand here
+    output=$(printf 'line one\nline two "$(danger)" `x`\n' \
+        | PATH="$case_dir:$PATH" FM_TEST_CAPTURE="$case_dir/captured" \
+          FM_ZULIP_CREDENTIAL_FILE="$fakecred" bash "$SCRIPT" - 2>&1) || rc=$?
+
+    expect_code 0 "$rc" "stdin body must send successfully"
+    assert_contains "$output" "424242" "message id must be printed"
+    [ -f "$case_dir/captured" ] || fail "fake curl did not capture the body"
+    # shellcheck disable=SC2016 # asserts the same literal body text
+    assert_contains "$(cat "$case_dir/captured")" 'line two "$(danger)" `x`' "body characters must survive untouched"
+    pass "stdin body survives untouched and the message id is printed"
 }
 
 # --- live send (opt-in) ---
@@ -157,5 +240,8 @@ test_live_send() {
 test_missing_credential_file
 test_missing_credential_variable
 test_empty_credential_variable
-test_invalid_api_response
+test_invalid_to
+test_api_error_response
+test_curl_failure
+test_stdin_body
 test_live_send

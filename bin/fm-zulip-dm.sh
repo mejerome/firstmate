@@ -45,6 +45,11 @@ while [ $# -gt 0 ]; do
             if [ -z "${2:-}" ]; then
                 die "missing value for --to"
             fi
+            case "$2" in
+                ''|*[!0-9]*)
+                    die "invalid --to user id (must be numeric): $2"
+                    ;;
+            esac
             RECIPIENT="[$2]"
             shift 2
             ;;
@@ -72,8 +77,11 @@ if ! grep -q "^${ZULIP_CREDENTIAL_VAR}=" "$ZULIP_CREDENTIAL_FILE" 2>/dev/null; t
     die "missing credential variable $ZULIP_CREDENTIAL_VAR in $ZULIP_CREDENTIAL_FILE"
 fi
 
-# Read the key (no quotes, no trailing newline)
+# Read the key, stripping any surrounding quotes a shell-sourceable file may
+# use and any trailing newline. The value is never printed.
 API_KEY=$(grep "^${ZULIP_CREDENTIAL_VAR}=" "$ZULIP_CREDENTIAL_FILE" | sed "s/^${ZULIP_CREDENTIAL_VAR}=//" | tr -d '\n')
+API_KEY="${API_KEY%\"}"; API_KEY="${API_KEY#\"}"
+API_KEY="${API_KEY%\'}"; API_KEY="${API_KEY#\'}"
 
 if [ -z "$API_KEY" ]; then
     die "credential variable $ZULIP_CREDENTIAL_VAR is empty"
@@ -93,13 +101,20 @@ else
 fi
 
 # --- Send message ---
-RESPONSE=$(curl -s -u "${ZULIP_BOT}:${API_KEY}" \
+# Capture curl's own failure explicitly. Under `set -e` a non-zero curl would
+# otherwise abort before we can say why, and a helper that dies silently on a
+# network error is the same defect as one that silently no-ops.
+if ! RESPONSE=$(curl -s -u "${ZULIP_BOT}:${API_KEY}" \
     -X POST "$ZULIP_API_URL" \
     --data-urlencode "type=private" \
     --data-urlencode "to=${RECIPIENT}" \
-    --data-urlencode "content@${MESSAGE_FILE}")
+    --data-urlencode "content@${MESSAGE_FILE}"); then
+    die "curl failed to reach Zulip API at $ZULIP_API_URL (no message sent)"
+fi
 
-# Extract message id from response
+# Extract message id from response. Zulip reports a refusal as
+# {"result":"error",...} with no top-level "id", so an absent id is a
+# failed send rather than a success we should report.
 MESSAGE_ID=$(printf "%s" "$RESPONSE" | jq -r '.id // empty' 2>/dev/null)
 
 if [ -z "$MESSAGE_ID" ]; then
