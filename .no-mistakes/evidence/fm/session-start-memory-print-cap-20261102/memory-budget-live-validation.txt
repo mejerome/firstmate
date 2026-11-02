@@ -1,0 +1,41 @@
+==============================================
+  LIVE MEMORY-BUDGET VALIDATION
+==============================================
+
+--- Scenario 1: Over-budget memory files are truncated ---
+    PASS: Truncated - 22479 of 177000 bytes
+    PASS: Last line absent (correctly truncated)
+
+--- Scenario 2: Under-budget memory files print whole ---
+    PASS: File content found in output
+    PASS: No truncation pointer under budget
+
+--- Scenario 3: Invalid budget (0) falls back to full print ---
+    PASS: No truncation pointer (full print fallback)
+    PASS: Full file printed (last line present)
+
+--- Scenario 4: Three-file water-fill budget ---
+    Truncated files: 2 (expect 2)
+    PASS: Small captain-shared.md printed whole
+    Combined printed bytes: 22411 (budget: 22500)
+    PASS: Within budget
+
+--- Scenario 5: Pointer commands copy-pasteable with spaced paths ---
+    PASS: Truncation pointer printed
+    grep command: grep -n spaced grep -n <topic> '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+    FAIL: grep command failed
+    tail command: tail -n 60 '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+    PASS: tail reads the remainder
+    sed command: sed -n '1,120p' '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+    PASS: sed reads the head
+  --- CONTEXT TRUNCATED: data/captain.md printed 22476 of 30026 bytes, bounded by config/startup-memory-budget ---
+  --- CONTEXT TRUNCATED: data/captain.md printed 22476 of 30026 bytes, bounded by config/startup-memory-budget ---
+  The rest of this file exists and is reachable on demand:
+    grep -n <topic> '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+    tail -n 60 '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+    sed -n '1,120p' '/tmp/fm-live-budget-f2.58fI0A/scenarios/s5/home/data with spaces/captain.md'
+
+==============================================
+  VALIDATION COMPLETE
+==============================================
+Evidence: /root/.no-mistakes/evidence/01M6ECZ7EVN5B0YNQ5B7YVERT7/memory-budget-live-validation-v2.txt
