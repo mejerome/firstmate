@@ -1,0 +1,666 @@
+
+================================================================================
+SESSION START - /tmp/fm-lab.SRLq5Q/home
+================================================================================
+
+LOCK
+--------------------------------------------------------------------------------
+lock acquired: harness pid 482072
+
+BOOTSTRAP
+--------------------------------------------------------------------------------
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+MISSING: no-mistakes (install: curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh)
+MISSING: gh-axi (install: npm install -g gh-axi && gh-axi setup hooks)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+MISSING: quota-axi (install: npm install -g quota-axi)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+
+WAKE QUEUE
+--------------------------------------------------------------------------------
+(no queued wakes)
+================================================================================
+SUPERVISION OPERATING INSTRUCTIONS - primary harness: claude
+================================================================================
+Current state:
+- Lock: held by this session; this session owns normal supervision unless away mode says otherwise.
+- Away/quiet mode: inactive.
+- X mode: inactive; use the default watcher cadence.
+- Supervision host: on; it takes away-posture wakes and, where the dialog mirror is verified, eligible attended wakes itself, and hands the rest to you (protocol at the end of this block).
+- Ordinary wake: the Stop-owned auto-arm (bin/fm-claude-stop-autoarm.sh) already owns watcher continuity; drain and handle the wake, and do not arm another cycle yourself.
+
+Mode: Claude Stop-hook-owned supervision.
+
+When this session owns supervision and away mode is not active:
+1. Drain first with `bin/fm-wake-drain.sh`.
+   After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
+2. Routine watcher arm and re-arm are owned by the Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`), never by you.
+   Every turn end while supervision is needed launches or attaches one home-scoped watcher cycle with no model command and no model tokens.
+   An actionable close wakes you through the hook's exit-2 rewake, delivered as a `Stop hook feedback` message.
+3. On a `Stop hook feedback` wake (`signal:`, `stale:`, `check:`, or `heartbeat`), run `bin/fm-wake-drain.sh` first and handle the wake.
+   Do not run `bin/fm-watch-arm.sh` after an ordinary wake; the next turn end re-arms automatically when supervision is still needed.
+   Do not invent a wake from an attach-status line alone; drain and act only on real wake records, the drain's `OPEN DECISIONS` and `UNREAD STATUS` entries, or a real watcher reason line.
+4. On the one `Stop hook feedback` automatic-mechanism failure notice (`firstmate watcher auto-arm FAILED ...`), drain, inspect the automatic mechanism failure, and do not turn the notice into a repeating manual-arm loop.
+5. If the Stop hook does not claim the home or reports an exhausted failure, inspect its registration and watcher startup path before ending blind.
+   Keep the Stop-owned automatic mechanism as the only Claude arm owner.
+6. Treat `watcher: started ...` and `watcher: attached ...` inside automatic arm output as proof that one live cycle exists.
+   On attach, the arm follows verified identity-matched successors instead of exiting when the first cycle ends.
+7. The durable wake queue preserves actionable events between a rewake and the next Stop-launched arm, while the bounded turn-end guard prevents a blind Stop when recovery did not start.
+   No PreToolUse hook denies fleet commands based on watcher status.
+   [`watcher-continuity.md`](../watcher-continuity.md) owns the exact session-lock recovery boundary.
+8. The turn-end guard (`bin/fm-turnend-guard.sh --claude`) remains the final backstop.
+   It requires the PID-strict live-watcher and fresh-beacon predicate at the Stop boundary, except for the Claude-specific foreign-live-owner safe exit owned by [`turnend-guard.md`](../turnend-guard.md#guard-predicates); that document also owns the distinct model-aware mid-turn pull-guard rules.
+   Otherwise, it allows the stop when a watcher is healthy or an open auto-arm generation claim owns recovery, while fresh failure epochs advance the bounded one-time attended fail-open progression described there.
+9. Waiting on the hook-owned cycle is silent: do not send idle progress while the watcher is parked.
+
+The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` remains the verified arm wrapper that the Stop hook foregrounds on a home that opted out of the [supervision host](../supervision-host.md) (`config/supervision-host-off`).
+Re-arm attaches to an existing healthy cycle when one is already present and follows its verified successor chain.
+See [`watcher-continuity.md`](../watcher-continuity.md) for the arm-layer successor and clean-close failure contract and the Claude ownership model.
+
+Supervision host: on for this home (`config/supervision-host-off` turns it off; [`supervision-host.md`](../supervision-host.md) owns the design).
+The Stop hook runs the supervision host in the arm's place, and everything above still holds with these additions:
+1. Attended (no away record, including a quiet-mode record; see [Postures](../supervision-host.md#postures)): a headless supervision session takes the wakes the supervision branch may take and never wakes you for a routine outcome, so fewer wakes reach you; check wakes, decision wakes, and whatever it cannot take still reach you exactly as above.
+   `supervision-host: branch-outcome: ...` means it handled a wake and recorded captain outcomes for you: run `bin/fm-wake-drain.sh`, process each entry of its `BRANCH OUTCOMES` section as firstmate from the task's current state, because each entry says how long ago it was recorded (tell the captain, land or merge what is ready, answer or escalate a decision, or act on a blocker; your reply covers only entries still open, as if a settled one, such as a PR since merged, had never been listed), then run the `mark-processed` acknowledgement it prints; every drain presents them again until you do.
+   `supervision-host: the supervision session could not take this wake ...` means the wake is yours: handle it as above.
+   A failing turn may include a `supervision-host:` health note about repeated engine errors: tell the captain when it matters and handle the handed-back wake as usual; during cooldown later attended closes reach you unchanged.
+   Routine outcomes never wake you; your next drain lists only visible routine outcomes under `BRANCH OUTCOMES, ROUTINE` for awareness, with nothing to acknowledge. Silent rows do not appear there, but remain available through `bin/fm-branch-outcome.sh list`.
+2. Away (an away record exists and no daemon runs): the host hands each wake to a headless away session that runs the supervision branch's contract under the record, and you are parked.
+   Only a wake the host hands back reaches you, as `Stop hook feedback` carrying the close plus one `supervision-host: <why>` line.
+   That wake is automatic supervision, not the captain's return: drain and handle it under the away posture, and never run the return from it.
+   After the return, a `supervision-host:` line naming the captain's return during a turn means that turn has visible outcomes missing from the return brief, whether the wake was handled or handed back: relay every following `supervision-host: outcome ...` line to the captain (the rows also remain in `bin/fm-branch-outcome.sh list`), then drain and handle any queued wake before acknowledging.
+   Each such visible outcome is also a queued `check: supervision-host outcome <n> ... was recorded after the captain returned` wake, which the drain presents until acknowledged: relay each outcome once, whichever arrives first, and acknowledge its `BRANCH OUTCOMES` entry too when it has one. Silent outcomes remain in the store but do not generate a handoff line or check wake.
+3. `supervision-host: cycle boundary ...` means the host ended its park at its bound: run `bin/fm-wake-drain.sh`, handle whatever it presents, run its printed acknowledgement (an empty queue prints `--ack-through 0`), and end the turn; the next park starts at that turn end.
+4. A guarded command that exits 6 naming the branch actor's lease means the supervision session is handling that task right now: leave the lease alone and retry after it releases, which it does when its turn ends.
+5. Captain outcomes the away session records stay in the outcome store until the return drain presents them; the return brief (`bin/fm-afk-return.sh`) counts them and points you to the `BRANCH OUTCOMES` section for processing and acknowledgement ([Captain outcomes](../supervision-host.md#captain-outcomes)).
+6. `/afk` writes only the record here (`bin/fm-afk-launch.sh start-native` refuses the away daemon on this home); for `/quiet`, follow the [quiet skill](../../.agents/skills/quiet/SKILL.md).
+
+
+================================================================================
+READ-ONCE CONTRACT
+================================================================================
+Everything below is printed in full for this session start: every state/*.meta,
+a compact data/backlog.md listing, a bounded tail of every state/*.status,
+data/projects.md, and data/secondmates.md.
+data/captain.md, data/captain-shared.md, and data/learnings.md are printed
+within the startup budget in config/startup-memory-budget; when one exceeds its
+share, a CONTEXT TRUNCATED pointer states the bytes printed and total bytes and
+prints the commands that read the remainder.
+Do NOT re-read any of them after reading this digest, and do NOT bulk-read
+data/backlog.md or state/*.status: re-reading everything defeats the entire
+point of this command.
+
+Go to a source directly only when:
+  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+  - its contents looked unparseable or corrupt,
+  - an individual full status log is needed for older wake-event history, or a
+    status line was capped and its tail matters (each task's full log path is
+    printed with its tail),
+  - a full task body is needed (bin/fm-tasks-axi.sh show <id> --full, or data/backlog.md),
+  - the backlog listing disclosed omitted queued items and this turn needs them,
+  - a CONTEXT TRUNCATED pointer named a remainder this turn needs (use the
+    commands it prints),
+  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
+    turn needs their verdict (bin/fm-startup-network.sh report),
+  - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
+    which case that stage's sources were never emitted and must be reconciled.
+
+================================================================================
+FLEET STATE
+================================================================================
+
+data/backlog.md
+--------------------------------------------------------------------------------
+ABSENT
+
+Work under way (state/*.meta)
+--------------------------------------------------------------------------------
+(none)
+
+Orphan status logs (state/*.status without matching .meta)
+--------------------------------------------------------------------------------
+(none)
+
+AFK
+--------------------------------------------------------------------------------
+absent
+
+================================================================================
+NETWORK CHECKS
+================================================================================
+not started - no deferred network checks have run for this home yet.
+
+================================================================================
+CONTEXT
+================================================================================
+
+data/projects.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/secondmates.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain.md
+--------------------------------------------------------------------------------
+filler line 00000 with enough text to matter
+filler line 00001 with enough text to matter
+filler line 00002 with enough text to matter
+filler line 00003 with enough text to matter
+filler line 00004 with enough text to matter
+filler line 00005 with enough text to matter
+filler line 00006 with enough text to matter
+filler line 00007 with enough text to matter
+filler line 00008 with enough text to matter
+filler line 00009 with enough text to matter
+filler line 00010 with enough text to matter
+filler line 00011 with enough text to matter
+filler line 00012 with enough text to matter
+filler line 00013 with enough text to matter
+filler line 00014 with enough text to matter
+filler line 00015 with enough text to matter
+filler line 00016 with enough text to matter
+filler line 00017 with enough text to matter
+filler line 00018 with enough text to matter
+filler line 00019 with enough text to matter
+filler line 00020 with enough text to matter
+filler line 00021 with enough text to matter
+filler line 00022 with enough text to matter
+filler line 00023 with enough text to matter
+filler line 00024 with enough text to matter
+filler line 00025 with enough text to matter
+filler line 00026 with enough text to matter
+filler line 00027 with enough text to matter
+filler line 00028 with enough text to matter
+filler line 00029 with enough text to matter
+filler line 00030 with enough text to matter
+filler line 00031 with enough text to matter
+filler line 00032 with enough text to matter
+filler line 00033 with enough text to matter
+filler line 00034 with enough text to matter
+filler line 00035 with enough text to matter
+filler line 00036 with enough text to matter
+filler line 00037 with enough text to matter
+filler line 00038 with enough text to matter
+filler line 00039 with enough text to matter
+filler line 00040 with enough text to matter
+filler line 00041 with enough text to matter
+filler line 00042 with enough text to matter
+filler line 00043 with enough text to matter
+filler line 00044 with enough text to matter
+filler line 00045 with enough text to matter
+filler line 00046 with enough text to matter
+filler line 00047 with enough text to matter
+filler line 00048 with enough text to matter
+filler line 00049 with enough text to matter
+filler line 00050 with enough text to matter
+filler line 00051 with enough text to matter
+filler line 00052 with enough text to matter
+filler line 00053 with enough text to matter
+filler line 00054 with enough text to matter
+filler line 00055 with enough text to matter
+filler line 00056 with enough text to matter
+filler line 00057 with enough text to matter
+filler line 00058 with enough text to matter
+filler line 00059 with enough text to matter
+filler line 00060 with enough text to matter
+filler line 00061 with enough text to matter
+filler line 00062 with enough text to matter
+filler line 00063 with enough text to matter
+filler line 00064 with enough text to matter
+filler line 00065 with enough text to matter
+filler line 00066 with enough text to matter
+filler line 00067 with enough text to matter
+filler line 00068 with enough text to matter
+filler line 00069 with enough text to matter
+filler line 00070 with enough text to matter
+filler line 00071 with enough text to matter
+filler line 00072 with enough text to matter
+filler line 00073 with enough text to matter
+filler line 00074 with enough text to matter
+filler line 00075 with enough text to matter
+filler line 00076 with enough text to matter
+filler line 00077 with enough text to matter
+filler line 00078 with enough text to matter
+filler line 00079 with enough text to matter
+filler line 00080 with enough text to matter
+filler line 00081 with enough text to matter
+filler line 00082 with enough text to matter
+filler line 00083 with enough text to matter
+filler line 00084 with enough text to matter
+filler line 00085 with enough text to matter
+filler line 00086 with enough text to matter
+filler line 00087 with enough text to matter
+filler line 00088 with enough text to matter
+filler line 00089 with enough text to matter
+filler line 00090 with enough text to matter
+filler line 00091 with enough text to matter
+filler line 00092 with enough text to matter
+filler line 00093 with enough text to matter
+filler line 00094 with enough text to matter
+filler line 00095 with enough text to matter
+filler line 00096 with enough text to matter
+filler line 00097 with enough text to matter
+filler line 00098 with enough text to matter
+filler line 00099 with enough text to matter
+filler line 00100 with enough text to matter
+filler line 00101 with enough text to matter
+filler line 00102 with enough text to matter
+filler line 00103 with enough text to matter
+filler line 00104 with enough text to matter
+filler line 00105 with enough text to matter
+filler line 00106 with enough text to matter
+filler line 00107 with enough text to matter
+filler line 00108 with enough text to matter
+filler line 00109 with enough text to matter
+filler line 00110 with enough text to matter
+filler line 00111 with enough text to matter
+filler line 00112 with enough text to matter
+filler line 00113 with enough text to matter
+filler line 00114 with enough text to matter
+filler line 00115 with enough text to matter
+filler line 00116 with enough text to matter
+filler line 00117 with enough text to matter
+filler line 00118 with enough text to matter
+filler line 00119 with enough text to matter
+filler line 00120 with enough text to matter
+filler line 00121 with enough text to matter
+filler line 00122 with enough text to matter
+filler line 00123 with enough text to matter
+filler line 00124 with enough text to matter
+filler line 00125 with enough text to matter
+filler line 00126 with enough text to matter
+filler line 00127 with enough text to matter
+filler line 00128 with enough text to matter
+filler line 00129 with enough text to matter
+filler line 00130 with enough text to matter
+filler line 00131 with enough text to matter
+filler line 00132 with enough text to matter
+filler line 00133 with enough text to matter
+filler line 00134 with enough text to matter
+filler line 00135 with enough text to matter
+filler line 00136 with enough text to matter
+filler line 00137 with enough text to matter
+filler line 00138 with enough text to matter
+filler line 00139 with enough text to matter
+filler line 00140 with enough text to matter
+filler line 00141 with enough text to matter
+filler line 00142 with enough text to matter
+filler line 00143 with enough text to matter
+filler line 00144 with enough text to matter
+filler line 00145 with enough text to matter
+filler line 00146 with enough text to matter
+filler line 00147 with enough text to matter
+filler line 00148 with enough text to matter
+filler line 00149 with enough text to matter
+filler line 00150 with enough text to matter
+filler line 00151 with enough text to matter
+filler line 00152 with enough text to matter
+filler line 00153 with enough text to matter
+filler line 00154 with enough text to matter
+filler line 00155 with enough text to matter
+filler line 00156 with enough text to matter
+filler line 00157 with enough text to matter
+filler line 00158 with enough text to matter
+filler line 00159 with enough text to matter
+filler line 00160 with enough text to matter
+filler line 00161 with enough text to matter
+filler line 00162 with enough text to matter
+filler line 00163 with enough text to matter
+filler line 00164 with enough text to matter
+filler line 00165 with enough text to matter
+filler line 00166 with enough text to matter
+filler line 00167 with enough text to matter
+filler line 00168 with enough text to matter
+filler line 00169 with enough text to matter
+filler line 00170 with enough text to matter
+filler line 00171 with enough text to matter
+filler line 00172 with enough text to matter
+filler line 00173 with enough text to matter
+filler line 00174 with enough text to matter
+filler line 00175 with enough text to matter
+filler line 00176 with enough text to matter
+filler line 00177 with enough text to matter
+filler line 00178 with enough text to matter
+filler line 00179 with enough text to matter
+filler line 00180 with enough text to matter
+filler line 00181 with enough text to matter
+filler line 00182 with enough text to matter
+filler line 00183 with enough text to matter
+filler line 00184 with enough text to matter
+filler line 00185 with enough text to matter
+filler line 00186 with enough text to matter
+filler line 00187 with enough text to matter
+filler line 00188 with enough text to matter
+filler line 00189 with enough text to matter
+filler line 00190 with enough text to matter
+filler line 00191 with enough text to matter
+filler line 00192 with enough text to matter
+filler line 00193 with enough text to matter
+filler line 00194 with enough text to matter
+filler line 00195 with enough text to matter
+filler line 00196 with enough text to matter
+filler line 00197 with enough text to matter
+filler line 00198 with enough text to matter
+filler line 00199 with enough text to matter
+filler line 00200 with enough text to matter
+filler line 00201 with enough text to matter
+filler line 00202 with enough text to matter
+filler line 00203 with enough text to matter
+filler line 00204 with enough text to matter
+filler line 00205 with enough text to matter
+filler line 00206 with enough text to matter
+filler line 00207 with enough text to matter
+filler line 00208 with enough text to matter
+filler line 00209 with enough text to matter
+filler line 00210 with enough text to matter
+filler line 00211 with enough text to matter
+filler line 00212 with enough text to matter
+filler line 00213 with enough text to matter
+filler line 00214 with enough text to matter
+filler line 00215 with enough text to matter
+filler line 00216 with enough text to matter
+filler line 00217 with enough text to matter
+filler line 00218 with enough text to matter
+filler line 00219 with enough text to matter
+filler line 00220 with enough text to matter
+filler line 00221 with enough text to matter
+filler line 00222 with enough text to matter
+filler line 00223 with enough text to matter
+filler line 00224 with enough text to matter
+filler line 00225 with enough text to matter
+filler line 00226 with enough text to matter
+filler line 00227 with enough text to matter
+filler line 00228 with enough text to matter
+filler line 00229 with enough text to matter
+filler line 00230 with enough text to matter
+filler line 00231 with enough text to matter
+filler line 00232 with enough text to matter
+filler line 00233 with enough text to matter
+filler line 00234 with enough text to matter
+filler line 00235 with enough text to matter
+filler line 00236 with enough text to matter
+filler line 00237 with enough text to matter
+filler line 00238 with enough text to matter
+filler line 00239 with enough text to matter
+filler line 00240 with enough text to matter
+filler line 00241 with enough text to matter
+filler line 00242 with enough text to matter
+filler line 00243 with enough text to matter
+filler line 00244 with enough text to matter
+filler line 00245 with enough text to matter
+filler line 00246 with enough text to matter
+filler line 00247 with enough text to matter
+filler line 00248 with enough text to matter
+filler line 00249 with enough text to matter
+filler line 00250 with enough text to matter
+filler line 00251 with enough text to matter
+filler line 00252 with enough text to matter
+filler line 00253 with enough text to matter
+filler line 00254 with enough text to matter
+filler line 00255 with enough text to matter
+filler line 00256 with enough text to matter
+filler line 00257 with enough text to matter
+filler line 00258 with enough text to matter
+filler line 00259 with enough text to matter
+filler line 00260 with enough text to matter
+filler line 00261 with enough text to matter
+filler line 00262 with enough text to matter
+filler line 00263 with enough text to matter
+filler line 00264 with enough text to matter
+filler line 00265 with enough text to matter
+filler line 00266 with enough text to matter
+filler line 00267 with enough text to matter
+filler line 00268 with enough text to matter
+filler line 00269 with enough text to matter
+filler line 00270 with enough text to matter
+filler line 00271 with enough text to matter
+filler line 00272 with enough text to matter
+filler line 00273 with enough text to matter
+filler line 00274 with enough text to matter
+filler line 00275 with enough text to matter
+filler line 00276 with enough text to matter
+filler line 00277 with enough text to matter
+filler line 00278 with enough text to matter
+filler line 00279 with enough text to matter
+filler line 00280 with enough text to matter
+filler line 00281 with enough text to matter
+filler line 00282 with enough text to matter
+filler line 00283 with enough text to matter
+filler line 00284 with enough text to matter
+filler line 00285 with enough text to matter
+filler line 00286 with enough text to matter
+filler line 00287 with enough text to matter
+filler line 00288 with enough text to matter
+filler line 00289 with enough text to matter
+filler line 00290 with enough text to matter
+filler line 00291 with enough text to matter
+filler line 00292 with enough text to matter
+filler line 00293 with enough text to matter
+filler line 00294 with enough text to matter
+filler line 00295 with enough text to matter
+filler line 00296 with enough text to matter
+filler line 00297 with enough text to matter
+filler line 00298 with enough text to matter
+filler line 00299 with enough text to matter
+filler line 00300 with enough text to matter
+filler line 00301 with enough text to matter
+filler line 00302 with enough text to matter
+filler line 00303 with enough text to matter
+filler line 00304 with enough text to matter
+filler line 00305 with enough text to matter
+filler line 00306 with enough text to matter
+filler line 00307 with enough text to matter
+filler line 00308 with enough text to matter
+filler line 00309 with enough text to matter
+filler line 00310 with enough text to matter
+filler line 00311 with enough text to matter
+filler line 00312 with enough text to matter
+filler line 00313 with enough text to matter
+filler line 00314 with enough text to matter
+filler line 00315 with enough text to matter
+filler line 00316 with enough text to matter
+filler line 00317 with enough text to matter
+filler line 00318 with enough text to matter
+filler line 00319 with enough text to matter
+filler line 00320 with enough text to matter
+filler line 00321 with enough text to matter
+filler line 00322 with enough text to matter
+filler line 00323 with enough text to matter
+filler line 00324 with enough text to matter
+filler line 00325 with enough text to matter
+filler line 00326 with enough text to matter
+filler line 00327 with enough text to matter
+filler line 00328 with enough text to matter
+filler line 00329 with enough text to matter
+filler line 00330 with enough text to matter
+filler line 00331 with enough text to matter
+filler line 00332 with enough text to matter
+filler line 00333 with enough text to matter
+filler line 00334 with enough text to matter
+filler line 00335 with enough text to matter
+filler line 00336 with enough text to matter
+filler line 00337 with enough text to matter
+filler line 00338 with enough text to matter
+filler line 00339 with enough text to matter
+filler line 00340 with enough text to matter
+filler line 00341 with enough text to matter
+filler line 00342 with enough text to matter
+filler line 00343 with enough text to matter
+filler line 00344 with enough text to matter
+filler line 00345 with enough text to matter
+filler line 00346 with enough text to matter
+filler line 00347 with enough text to matter
+filler line 00348 with enough text to matter
+filler line 00349 with enough text to matter
+filler line 00350 with enough text to matter
+filler line 00351 with enough text to matter
+filler line 00352 with enough text to matter
+filler line 00353 with enough text to matter
+filler line 00354 with enough text to matter
+filler line 00355 with enough text to matter
+filler line 00356 with enough text to matter
+filler line 00357 with enough text to matter
+filler line 00358 with enough text to matter
+filler line 00359 with enough text to matter
+filler line 00360 with enough text to matter
+filler line 00361 with enough text to matter
+filler line 00362 with enough text to matter
+filler line 00363 with enough text to matter
+filler line 00364 with enough text to matter
+filler line 00365 with enough text to matter
+filler line 00366 with enough text to matter
+filler line 00367 with enough text to matter
+filler line 00368 with enough text to matter
+filler line 00369 with enough text to matter
+filler line 00370 with enough text to matter
+filler line 00371 with enough text to matter
+filler line 00372 with enough text to matter
+filler line 00373 with enough text to matter
+filler line 00374 with enough text to matter
+filler line 00375 with enough text to matter
+filler line 00376 with enough text to matter
+filler line 00377 with enough text to matter
+filler line 00378 with enough text to matter
+filler line 00379 with enough text to matter
+filler line 00380 with enough text to matter
+filler line 00381 with enough text to matter
+filler line 00382 with enough text to matter
+filler line 00383 with enough text to matter
+filler line 00384 with enough text to matter
+filler line 00385 with enough text to matter
+filler line 00386 with enough text to matter
+filler line 00387 with enough text to matter
+filler line 00388 with enough text to matter
+filler line 00389 with enough text to matter
+filler line 00390 with enough text to matter
+filler line 00391 with enough text to matter
+filler line 00392 with enough text to matter
+filler line 00393 with enough text to matter
+filler line 00394 with enough text to matter
+filler line 00395 with enough text to matter
+filler line 00396 with enough text to matter
+filler line 00397 with enough text to matter
+filler line 00398 with enough text to matter
+filler line 00399 with enough text to matter
+filler line 00400 with enough text to matter
+filler line 00401 with enough text to matter
+filler line 00402 with enough text to matter
+filler line 00403 with enough text to matter
+filler line 00404 with enough text to matter
+filler line 00405 with enough text to matter
+filler line 00406 with enough text to matter
+filler line 00407 with enough text to matter
+filler line 00408 with enough text to matter
+filler line 00409 with enough text to matter
+filler line 00410 with enough text to matter
+filler line 00411 with enough text to matter
+filler line 00412 with enough text to matter
+filler line 00413 with enough text to matter
+filler line 00414 with enough text to matter
+filler line 00415 with enough text to matter
+filler line 00416 with enough text to matter
+filler line 00417 with enough text to matter
+filler line 00418 with enough text to matter
+filler line 00419 with enough text to matter
+filler line 00420 with enough text to matter
+filler line 00421 with enough text to matter
+filler line 00422 with enough text to matter
+filler line 00423 with enough text to matter
+filler line 00424 with enough text to matter
+filler line 00425 with enough text to matter
+filler line 00426 with enough text to matter
+filler line 00427 with enough text to matter
+filler line 00428 with enough text to matter
+filler line 00429 with enough text to matter
+filler line 00430 with enough text to matter
+filler line 00431 with enough text to matter
+filler line 00432 with enough text to matter
+filler line 00433 with enough text to matter
+filler line 00434 with enough text to matter
+filler line 00435 with enough text to matter
+filler line 00436 with enough text to matter
+filler line 00437 with enough text to matter
+filler line 00438 with enough text to matter
+filler line 00439 with enough text to matter
+filler line 00440 with enough text to matter
+filler line 00441 with enough text to matter
+filler line 00442 with enough text to matter
+filler line 00443 with enough text to matter
+filler line 00444 with enough text to matter
+filler line 00445 with enough text to matter
+filler line 00446 with enough text to matter
+filler line 00447 with enough text to matter
+filler line 00448 with enough text to matter
+filler line 00449 with enough text to matter
+filler line 00450 with enough text to matter
+filler line 00451 with enough text to matter
+filler line 00452 with enough text to matter
+filler line 00453 with enough text to matter
+filler line 00454 with enough text to matter
+filler line 00455 with enough text to matter
+filler line 00456 with enough text to matter
+filler line 00457 with enough text to matter
+filler line 00458 with enough text to matter
+filler line 00459 with enough text to matter
+filler line 00460 with enough text to matter
+filler line 00461 with enough text to matter
+filler line 00462 with enough text to matter
+filler line 00463 with enough text to matter
+filler line 00464 with enough text to matter
+filler line 00465 with enough text to matter
+filler line 00466 with enough text to matter
+filler line 00467 with enough text to matter
+filler line 00468 with enough text to matter
+filler line 00469 with enough text to matter
+filler line 00470 with enough text to matter
+filler line 00471 with enough text to matter
+filler line 00472 with enough text to matter
+filler line 00473 with enough text to matter
+filler line 00474 with enough text to matter
+filler line 00475 with enough text to matter
+filler line 00476 with enough text to matter
+filler line 00477 with enough text to matter
+filler line 00478 with enough text to matter
+filler line 00479 with enough text to matter
+filler line 00480 with enough text to matter
+filler line 00481 with enough text to matter
+filler line 00482 with enough text to matter
+filler line 00483 with enough text to matter
+filler line 00484 with enough text to matter
+filler line 00485 with enough text to matter
+filler line 00486 with enough text to matter
+filler line 00487 with enough text to matter
+filler line 00488 with enough text to matter
+filler line 00489 with enough text to matter
+filler line 00490 with enough text to matter
+filler line 00491 with enough text to matter
+filler line 00492 with enough text to matter
+filler line 00493 with enough text to matter
+filler line 00494 with enough text to matter
+filler line 00495 with enough text to matter
+filler line 00496 with enough text to matter
+
+--- CONTEXT TRUNCATED: data/captain.md printed 22365 of 180000 bytes, bounded by config/startup-memory-budget ---
+The rest of this file exists and is reachable on demand:
+  grep -n <topic> '/tmp/fm-lab.SRLq5Q/home/data/captain.md'
+  tail -n 60 '/tmp/fm-lab.SRLq5Q/home/data/captain.md'
+  sed -n '1,120p' '/tmp/fm-lab.SRLq5Q/home/data/captain.md'
+--- END CONTEXT TRUNCATED ---
+
+data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)
+--------------------------------------------------------------------------------
+Tiny shared memory - printed whole under budget
+
+data/learnings.md
+--------------------------------------------------------------------------------
+Tiny learnings - printed whole under budget
+
+================================================================================
+NEXT STEP
+================================================================================
+Follow the supervision operating instructions block above for harness 'claude'.
+This script never starts supervision itself.
+
+The digest above is complete for this session start. The READ-ONCE CONTRACT
+section near the top of it governs what may still be read from disk.

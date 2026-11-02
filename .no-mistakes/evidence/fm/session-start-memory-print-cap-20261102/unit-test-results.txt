@@ -1,0 +1,7 @@
+=== TEST: curated memory within budget ===
+ok - context digest prints curated memory within the startup-memory budget
+=== TEST: three-file split ===
+ok - context digest splits the startup budget across three memory files
+=== TEST: spaced paths ===
+ok - context digest quotes memory paths so pointer commands run as printed
+=== ALL PASSED ===
