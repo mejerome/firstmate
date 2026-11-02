@@ -526,16 +526,25 @@ memory_print_head() {
   fi
 }
 
+# memory_shell_quote <word>: one POSIX single-quoted word, so a path with spaces
+# stays copy-pasteable in the commands the truncation pointer prints.
+memory_shell_quote() {
+  local word=$1
+  word=${word//\'/\'\\\'\'}
+  printf "'%s'" "$word"
+}
+
 # memory_print_truncation_pointer <path> <printed-bytes> <total-bytes>: the
 # remainder must stay visibly reachable, so the read-once contract stays honest.
 memory_print_truncation_pointer() {
-  local path=$1 printed=$2 total=$3 rel=${1##*/}
+  local path=$1 printed=$2 total=$3 rel=${1##*/} quoted
+  quoted=$(memory_shell_quote "$path")
   printf '\n--- CONTEXT TRUNCATED: data/%s printed %s of %s bytes, bounded by config/startup-memory-budget ---\n' \
     "$rel" "$printed" "$total"
   printf 'The rest of this file exists and is reachable on demand:\n'
-  printf '  grep -n <topic> %s\n' "$path"
-  printf '  tail -n 60 %s\n' "$path"
-  printf "  sed -n '1,120p' %s\n" "$path"
+  printf '  grep -n <topic> %s\n' "$quoted"
+  printf '  tail -n 60 %s\n' "$quoted"
+  printf "  sed -n '1,120p' %s\n" "$quoted"
   printf -- '--- END CONTEXT TRUNCATED ---\n'
 }
 
