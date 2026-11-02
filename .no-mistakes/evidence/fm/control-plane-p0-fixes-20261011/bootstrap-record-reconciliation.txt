@@ -1,0 +1,15 @@
+exit=1
+CONTROL_RELAUNCH_RECONCILE: task-r1: restored the prior record after an interrupted relaunch at launching (endpoint read 'missing')
+
+=== Restored record ===
+window=fmses:fm-r1
+endpoint_task_id=r1
+worktree=/tmp/fm-live-rec.kxYwqt/wt
+project=/tmp/fm-live-rec.kxYwqt/proj
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-r1
+model=default
+effort=default

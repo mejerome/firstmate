@@ -1,0 +1,3 @@
+exit=1
+COMPACTION: unsafe session=primary cwd=/tmp/fm-live2.psiOfE model=syslog-harness/safe-model window=131.1K reserveTokens=55000 source=/tmp/fm-live2.psiOfE/global-exceeds.json thinking=unset thinkingSource=builtin-pi-default reason=output-budget-exceeds-reserve (output=64000 reserve=55000)
+COMPACTION: unsafe session=global-scope cwd=- model=syslog-harness/safe-model window=131.1K reserveTokens=55000 source=/tmp/fm-live2.psiOfE/global-exceeds.json thinking=unset thinkingSource=builtin-pi-default reason=output-budget-exceeds-reserve (output=64000 reserve=55000)

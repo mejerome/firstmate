@@ -1,0 +1,3 @@
+exit=1
+COMPACTION: ok session=primary cwd=/tmp/fm-live.JkTKF7 model=deepseek/deepseek-flash window=1M reserveTokens=900000 source=/tmp/fm-live.JkTKF7/global5.json thinking=high thinkingSource=/tmp/fm-live.JkTKF7/global5.json (trigger=10.0% limit=60%)
+COMPACTION: ok session=global-scope cwd=- model=deepseek/deepseek-flash window=1M reserveTokens=900000 source=/tmp/fm-live.JkTKF7/global5.json thinking=high thinkingSource=/tmp/fm-live.JkTKF7/global5.json (trigger=10.0% limit=60%)

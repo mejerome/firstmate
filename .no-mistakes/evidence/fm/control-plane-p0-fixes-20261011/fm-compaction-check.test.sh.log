@@ -1,0 +1,35 @@
+FM_TEST_BEGIN 2026-11-02T10:56:47Z tests/fm-compaction-check.test.sh family=unclassified expected_gate_skip=none
+ok - project .pi/settings.json reserveTokens wins over the global settings
+ok - a cwd with no project settings falls through to the global reserve
+ok - the built-in pi default reserve is used and named when no file sets one
+ok - a scope with compaction disabled is not judged by a reserve pi ignores
+ok - a disabled scope does not disarm the guard for a sibling with an absent enabled key
+ok - compaction.enabled follows project-over-global precedence like reserveTokens
+ok - a non-boolean compaction.enabled is a visible error, never a silent coercion
+ok - a non-boolean global compaction.enabled errors for every scope instead of being coerced
+ok - a secondmate pin scope rejects a non-boolean enabled instead of coercing it
+ok - a trigger above the limit fails non-zero and names session, model, window, setting, and file
+ok - a reserve that is not below the window fails even though the trigger point is not above the limit
+ok - --diagnostics is silent when every scope is safe while --all still prints the table
+ok - --diagnostics prints only the actionable lines
+ok - each secondmate home resolves its own project settings over the global file
+ok - a non-pi secondmate harness is skipped rather than judged by pi's compaction settings
+ok - a model absent from the pi model list is a visible error, not a silent pass
+ok - a bare model id served by more than one provider is a loud error
+ok - an unavailable model list fails visibly instead of passing quietly
+ok - a partial model list cannot hide a scope's verdict silently
+ok - an empty model list is skipped, not an error
+ok - a partial first read is retried and the scope is judged instead of erroring
+ok - a host with no pi installed skips the check instead of failing it
+ok - a settings read that yields nothing is reported as unreadable, not as missing settings
+ok - the read-only bootstrap detect pass relays the unsafe compaction line into the digest
+ok - the bootstrap detect pass stays silent when every session scope is safe
+ok - a model output ceiling below the fleet floor fails loudly with both numbers
+ok - an output ceiling the reserve cannot hold fails loudly with both numbers
+ok - a thinking level set from two conflicting sources is reported unsafe with both values
+ok - a single explicit thinking level with an adequate output budget is reported ok and named
+ok - the real pi --list-models output resolves a window through this checker
+FM_TEST_END 2026-11-02T10:56:53Z tests/fm-compaction-check.test.sh exit=0 duration_ms=6379 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=6437
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=6379 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-compaction-check.test.sh duration_ms=6379
