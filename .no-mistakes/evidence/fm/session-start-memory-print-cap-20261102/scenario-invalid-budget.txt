@@ -1,0 +1,4 @@
+=== SCENARIO: Invalid budget (0) — full print preserved ===
+Setup: Large captain.md (130022 bytes), 0-token budget (rejected by validator).
+Expected: Files printed whole (no truncation), because budget state=invalid.
+Result: PASS. Truncation pointers: 0. Full file visible.

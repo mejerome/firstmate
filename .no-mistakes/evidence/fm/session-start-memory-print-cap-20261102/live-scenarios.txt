@@ -1,0 +1,54 @@
+======================================================================
+SESSION-START MEMORY BUDGET LIVE VALIDATION
+======================================================================
+
+=== SETUP: small memory files, generous 7500 token budget ===
+
+/bin/bash: line 26: /tmp/fm-live-test.HDEcRb/home/data/captain.md
+printf 'Shared captain instructions: review all PRs.\n' > /tmp/fm-live-test.HDEcRb/home/data/captain-shared.md: No such file or directory
+/bin/bash: line 28: /tmp/fm-live-test.HDEcRb/home/data/captain.md: No such file or directory
+/bin/bash: line 28: /tmp/fm-live-test.HDEcRb/home/data/captain-shared.md: No such file or directory
+/bin/bash: line 28: /tmp/fm-live-test.HDEcRb/home/data/learnings.md: No such file or directory
+/bin/bash: line 28: /tmp/fm-live-test.HDEcRb/home/data/learnings.md
+echo 7500 > /tmp/fm-live-test.HDEcRb/home/config/startup-memory-budget
+
+echo Sizes:
+echo : No such file or directory
+/bin/bash: line 54: /tmp/fm-live-test.HDEcRb/home/data/captain.md
+printf 'learning: small note under budget.\n' > /tmp/fm-live-test.HDEcRb/home/data/learnings.md: No such file or directory
+Sizes:
+/bin/bash: line 59: /tmp/fm-live-test.HDEcRb/home/data/captain.md: No such file or directory
+  captain.md:  bytes
+/bin/bash: line 60: /tmp/fm-live-test.HDEcRb/home/data/learnings.md: No such file or directory
+  learnings.md:  bytes
+  budget: 750 tokens -> 2250 bytes
+
+Truncation pointers:
+
+Small file (learnings.md) visible: 0
+Large file head visible: 0
+
+======================================================================
+INVALID BUDGET (0): full print preserved
+======================================================================
+
+Truncation pointers: 0
+Full captain.md visible: 0
+
+======================================================================
+MISSING BUDGET FILE: full print preserved
+======================================================================
+
+Truncation pointers: 0
+Full captain.md visible: 0
+
+======================================================================
+ABSENT FILES: proper ABSENT markers
+======================================================================
+
+data/captain.md
+--------------------------------------------------------------------------------
+ABSENT
+data/learnings.md
+--------------------------------------------------------------------------------
+ABSENT

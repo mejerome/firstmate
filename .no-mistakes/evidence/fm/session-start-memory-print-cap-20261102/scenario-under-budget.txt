@@ -1,0 +1,9 @@
+=== SCENARIO: Under-budget — files print whole ===
+Setup: Small captain.md (25 bytes), small learnings.md (40 bytes), 7500-token budget.
+Expected: Files printed whole, no truncation pointers.
+Result: PASS.
+
+=== Subsection output ===
+data/captain.md
+--------------------------------------------------------------------------------
+Precious captain memory.

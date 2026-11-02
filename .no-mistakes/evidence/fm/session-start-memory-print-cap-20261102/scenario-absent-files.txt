@@ -1,0 +1,12 @@
+=== SCENARIO: Absent files ===
+Setup: All three memory files deleted, budget present.
+Expected: ABSENT markers for each.
+Result: PASS.
+
+data/captain.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/learnings.md
+--------------------------------------------------------------------------------
+ABSENT

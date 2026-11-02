@@ -1,0 +1,17 @@
+=== SCENARIO: Over-budget — large files truncated ===
+Setup: Large captain.md (130022 bytes), small learnings.md (29 bytes), 750-token budget (2250 bytes).
+Expected: Large captain.md printed with bounded head + truncation pointer. Small learnings.md printed whole.
+Result: PASS.
+
+=== Truncation pointer output ===
+--- CONTEXT TRUNCATED: data/captain.md printed 2219 of 130022 bytes, bounded by config/startup-memory-budget ---
+The rest of this file exists and is reachable on demand:
+  grep -n <topic> /tmp/.../home/data/captain.md
+  tail -n 60 /tmp/.../home/data/captain.md
+  sed -n '1,120p' /tmp/.../home/data/captain.md
+--- END CONTEXT TRUNCATED ---
+
+=== Small learnings.md output ===
+data/learnings.md
+--------------------------------------------------------------------------------
+learning: small note.

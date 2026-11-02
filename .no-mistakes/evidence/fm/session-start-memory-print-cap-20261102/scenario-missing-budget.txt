@@ -1,0 +1,4 @@
+=== SCENARIO: Missing budget file — full print preserved ===
+Setup: Large captain.md (130022 bytes), no budget file.
+Expected: Files printed whole (no truncation), because fm_startup_memory_budget_read fails.
+Result: PASS. Truncation pointers: 0. Full file visible.
