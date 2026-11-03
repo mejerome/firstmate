@@ -814,6 +814,145 @@ EOF
   pass "context digest distinguishes ABSENT, empty-but-present, and populated files"
 }
 
+# --- context digest: startup-memory budget bound ----------------------------
+
+# Curated memory is printed within config/startup-memory-budget. Over budget the
+# digest prints a bounded head plus an explicit pointer that keeps the remainder
+# reachable; under budget the bytes are unchanged from the full print.
+test_context_digest_prints_curated_memory_within_budget() {
+  local rec root home fakebin out over_cap pointer
+  rec=$(new_world memory-budget)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  # Small memory under a generous budget: printed whole, no pointer.
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  printf 'tiny captain memory\n' > "$home/data/captain.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" 'tiny captain memory' "under-budget captain.md was not printed whole"
+  printf '%s\n' "$out" | grep -q -- '--- CONTEXT TRUNCATED:' \
+    && fail "under-budget digest printed a truncation pointer"
+
+  # One huge memory file against the same budget: bounded head, honest pointer.
+  {
+    printf 'first captain line\n'
+    awk 'BEGIN { for (i = 0; i < 4000; i++) printf "filler line %05d with enough text to matter\n", i }'
+  } > "$home/data/captain.md"
+  over_cap=$(LC_ALL=C wc -c < "$home/data/captain.md" | tr -d '[:space:]')
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" 'first captain line' "over-budget captain.md lost its head"
+  printf '%s\n' "$out" | grep -q 'filler line 03999' \
+    && fail "over-budget captain.md was printed whole"
+  pointer=$(printf '%s\n' "$out" | grep -A4 -- '--- CONTEXT TRUNCATED: data/captain.md printed ')
+  assert_contains "$pointer" "of $over_cap bytes" "truncation pointer did not state the total bytes"
+  assert_contains "$pointer" 'grep -n <topic>' "truncation pointer missing the grep form"
+  assert_contains "$pointer" 'tail -n 60' "truncation pointer missing the tail form"
+  assert_contains "$pointer" "sed -n '1,120p'" "truncation pointer missing the sed range form"
+  assert_contains "$pointer" "$home/data/captain.md" "truncation pointer missing the copy-pasteable path"
+
+  # An invalid budget keeps today's full print rather than guessing a cap.
+  printf '0\n' > "$home/config/startup-memory-budget"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" 'filler line 03999' "an invalid budget did not keep the full print"
+
+  pass "context digest prints curated memory within the startup-memory budget"
+}
+
+# The budget split must be measured, not assumed: with all three memory files
+# populated and over budget, the combined printed bytes stay inside the
+# allowance, a small file still prints whole, and every truncated file names its
+# own printed and total byte counts.
+test_context_digest_splits_budget_across_three_memory_files() {
+  local rec root home fakebin out budget_bytes pointer_lines combined f size line
+  rec=$(new_world memory-budget-split)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  awk 'BEGIN { for (i = 0; i < 1200; i++) printf "captain line %05d padded with ordinary prose text\n", i }' \
+    > "$home/data/captain.md"
+  printf 'shared small tail marker: SHARED-TAIL-MARKER\n' > "$home/data/captain-shared.md"
+  awk 'BEGIN { for (i = 0; i < 1600; i++) printf "learnings line %05d padded with ordinary prose text\n", i }' \
+    > "$home/data/learnings.md"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  budget_bytes=$((7500 * 3))
+  pointer_lines=$(printf '%s\n' "$out" \
+    | sed -n 's/^--- CONTEXT TRUNCATED: data\/\([^ ]*\) printed \([0-9]*\) of \([0-9]*\) bytes.*/\1 \2 \3/p')
+
+  [ "$(printf '%s\n' "$pointer_lines" | grep -c .)" -eq 2 ] \
+    || fail "expected exactly two truncated memory files, got: $pointer_lines"
+  for f in captain.md learnings.md; do
+    line=$(printf '%s\n' "$pointer_lines" | awk -v f="$f" '$1 == f')
+    [ -n "$line" ] || fail "no truncation pointer for data/$f"
+    size=$(LC_ALL=C wc -c < "$home/data/$f" | tr -d '[:space:]')
+    [ "$(printf '%s\n' "$line" | awk '{print $3}')" = "$size" ] \
+      || fail "pointer for data/$f did not state its total bytes $size: $line"
+    [ "$(printf '%s\n' "$line" | awk '{print $2}')" -gt 0 ] \
+      || fail "pointer for data/$f printed no bytes: $line"
+  done
+  printf '%s\n' "$pointer_lines" | awk '$1 == "captain-shared.md" {found = 1} END {exit found ? 0 : 1}' \
+    && fail "the small captain-shared.md was truncated"
+  assert_contains "$out" 'shared small tail marker: SHARED-TAIL-MARKER' \
+    "the small memory file was not printed whole"
+
+  combined=$(printf '%s\n' "$pointer_lines" | awk '{sum += $2} END {printf "%d", sum}')
+  [ "$combined" -gt 0 ] || fail "no memory bytes were printed at all"
+  [ "$combined" -le "$budget_bytes" ] \
+    || fail "combined printed bytes $combined exceed the budget allowance $budget_bytes"
+
+  pass "context digest splits the startup budget across three memory files"
+}
+
+# A home path with spaces must not break the pointer commands: the printed
+# grep, tail, and sed lines must run as written and read the omitted memory.
+test_context_digest_quotes_memory_paths_in_truncation_pointer() {
+  local rec root home fakebin out spaced cmd
+  rec=$(new_world memory-budget-spaced)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  spaced="$home/data with spaces"
+  mkdir -p "$spaced"
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  {
+    printf 'first spaced captain line\n'
+    awk 'BEGIN { for (i = 0; i < 1200; i++) printf "spaced filler line %05d\n", i }'
+  } > "$spaced/captain.md"
+
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_DATA_OVERRIDE="$spaced" \
+    PATH="$fakebin:$BASE_PATH" "$SESSION_START")
+  assert_contains "$out" "--- CONTEXT TRUNCATED: data/captain.md printed " \
+    "spaced-path run did not truncate the memory file"
+
+  cmd=$(printf '%s\n' "$out" | sed -n "s/^  \(grep -n <topic> .*\)$/\1/p" | head -1)
+  [ -n "$cmd" ] || fail "spaced-path pointer printed no grep command"
+  cmd=${cmd/<topic>/spaced}
+  bash -c "$cmd" >/dev/null || fail "spaced-path grep command did not run: $cmd"
+
+  cmd=$(printf '%s\n' "$out" | sed -n 's/^  \(tail -n 60 .*\)$/\1/p' | head -1)
+  [ -n "$cmd" ] || fail "spaced-path pointer printed no tail command"
+  printf '%s\n' "$(bash -c "$cmd")" | grep -q 'spaced filler line 01199' \
+    || fail "spaced-path tail command did not read the file: $cmd"
+
+  cmd=$(printf '%s\n' "$out" | sed -n "s/^  \(sed -n '1,120p' .*\)$/\1/p" | head -1)
+  [ -n "$cmd" ] || fail "spaced-path pointer printed no sed command"
+  printf '%s\n' "$(bash -c "$cmd")" | grep -q 'first spaced captain line' \
+    || fail "spaced-path sed command did not read the file: $cmd"
+
+  pass "context digest quotes memory paths so pointer commands run as printed"
+}
+
 # --- lock refusal: read-only path --------------------------------------------
 
 test_lock_refusal_read_only_path() {
@@ -3015,6 +3154,9 @@ EOF
 }
 
 test_context_digest_absent_empty_present
+test_context_digest_prints_curated_memory_within_budget
+test_context_digest_splits_budget_across_three_memory_files
+test_context_digest_quotes_memory_paths_in_truncation_pointer
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
 test_trace_context_effective_state_is_frozen_after_lock
