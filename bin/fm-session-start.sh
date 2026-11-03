@@ -1090,8 +1090,8 @@ reemit_checkpoint_print() {
 # reemit_capture_finish: restore stdout and print the assembled checkpoint.
 reemit_capture_finish() {
   [ "$REEMIT" -eq 1 ] || return 0
-  exec >&6 6>&-
   [ -n "$REEMIT_CAPTURE" ] || return 0
+  exec >&6 6>&-
   reemit_checkpoint_print "$REEMIT_CAPTURE"
   rm -f "$REEMIT_CAPTURE" 2>/dev/null || true
 }
