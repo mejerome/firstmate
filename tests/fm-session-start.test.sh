@@ -24,6 +24,10 @@
 #   - composition: the script invokes the real fm-lock.sh/fm-bootstrap.sh/
 #     fm-wake-drain.sh (their real, distinctive output appears verbatim), it
 #     does not reimplement their logic
+#   - the bounded re-emit checkpoint: under-budget bytes and pointer commands, an
+#     over-budget cut that keeps the lock line, the wake queue, and the pointers
+#     and names every omitted section, an unchanged full startup digest, and a
+#     wake drain that still prints WAKE_ACK_REQUIRED
 #   - the deferred startup stage: slow network and inactive current-state reads
 #     do not delay the digest, the work still runs and lands durable findings, a
 #     network result surfaces exactly once (inline or as a wake, never both), a
@@ -2561,11 +2565,152 @@ EOF
   FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
     --recovery-generation "$generation" || fail "--reemit wake acknowledgement failed"
   [ ! -s "$home/state/.wake-queue" ] || fail "--reemit acknowledgement left queued wakes behind"
-  assert_contains "$reemit" "CONTEXT" "--reemit dropped the context digest"
-  assert_contains "$reemit" "FLEET STATE" "--reemit dropped the fleet-state digest"
-  assert_contains "$reemit" "NEXT STEP" "--reemit dropped the closing reminder"
+  assert_contains "$reemit" "CONTEXT TRUNCATED: re-emit checkpoint printed" \
+    "--reemit did not print its bounded checkpoint pointer block"
+  assert_not_contains "$reemit" "READ-ONCE CONTRACT" \
+    "--reemit reprinted the full-digest read-once contract instead of the checkpoint"
+  assert_not_contains "$reemit" "NEXT STEP" \
+    "--reemit printed the full-digest closing reminder instead of the checkpoint"
 
-  pass "--reemit reprints the digest without repeating startup's mutating sweeps and still drains queued wakes"
+  pass "--reemit prints a bounded checkpoint without repeating startup's mutating sweeps and still drains queued wakes"
+}
+
+# The re-emit payload is what the harness delivers into model context, so it is
+# bounded by the same config/startup-memory-budget setting that already bounds
+# curated memory. Under the budget the checkpoint carries every section, states
+# the bytes it printed against the records the full digest would also print, and
+# prints the copy-pasteable command that reads each record on demand.
+test_reemit_checkpoint_reports_bytes_and_pointer_commands() {
+  local rec root home fakebin out pointer printed total actual
+  rec=$(new_world reemit-pointers)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_harness "$fakebin" pi
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  printf '%s\n' '- demo [no-mistakes] - a demo project' > "$home/data/projects.md"
+  printf '%s\n' 'checkpoint captain marker' > "$home/data/captain.md"
+  printf '%s\n' 'checkpoint learnings marker' > "$home/data/learnings.md"
+  printf '%s\n' 'kind=ship' 'project=demo' > "$home/state/ck.meta"
+  printf '%s\n' 'working [at=1700000000]: checkpoint status marker' > "$home/state/ck.status"
+
+  FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" --source startup >/dev/null
+  out=$(FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" --reemit --source clear)
+
+  assert_contains "$out" "SESSION START (CONTEXT RE-EMIT) - $home" "--reemit did not label its checkpoint"
+  assert_contains "$out" "lock acquired: harness pid" "the checkpoint dropped the lock ownership line"
+  assert_contains "$out" "WAKE QUEUE" "the checkpoint dropped the queued-wake state"
+  assert_contains "$out" "NETWORK CHECKS" "the checkpoint dropped the network-check verdict"
+  assert_contains "$out" "PI_WATCH_EXTENSION:" "the checkpoint dropped the Pi extension load state"
+  assert_contains "$out" "posture: attended" "the checkpoint dropped the away/quiet posture"
+
+  pointer=$(printf '%s\n' "$out" | sed -n '/--- CONTEXT TRUNCATED: re-emit checkpoint printed/,/--- END CONTEXT TRUNCATED ---/p')
+  assert_contains "$pointer" "bounded by config/startup-memory-budget" \
+    "the re-emit byte report did not name the budget"
+  printed=$(printf '%s\n' "$pointer" | sed -n 's/.*printed \([0-9][0-9]*\) of about \([0-9][0-9]*\) bytes.*/\1/p')
+  total=$(printf '%s\n' "$pointer" | sed -n 's/.*printed \([0-9][0-9]*\) of about \([0-9][0-9]*\) bytes.*/\2/p')
+  [ -n "$printed" ] && [ -n "$total" ] || fail "the checkpoint pointer block omitted the printed and total byte counts"
+  [ "$total" -gt "$printed" ] || fail "the checkpoint total bytes did not exceed the printed bytes: $pointer"
+  [ "$printed" -le $((7500 * 3)) ] || fail "an under-budget checkpoint reported more than its budget: $printed"
+  actual=$(printf '%s\n' "$out" | LC_ALL=C wc -c | tr -d '[:space:]')
+  [ "$actual" = "$printed" ] || fail "the checkpoint reported $printed printed bytes but emitted $actual"
+
+  assert_contains "$pointer" "bin/fm-tasks-axi.sh list --file '$home/data/backlog.md'" \
+    "the pointer block omitted the full-backlog command"
+  assert_contains "$pointer" "cat '$home/state'/<task>.meta" "the pointer block omitted the task-meta command"
+  assert_contains "$pointer" "tail -n 5 '$home/state'/<task>.status" "the pointer block omitted the status-tail command"
+  assert_contains "$pointer" "cat '$home/data/projects.md'" "the pointer block omitted the projects command"
+  assert_contains "$pointer" "cat '$home/data/secondmates.md'" "the pointer block omitted the secondmates command"
+  assert_contains "$pointer" "cat '$home/data/captain.md'" "the pointer block omitted the captain command"
+  assert_contains "$pointer" "cat '$home/data/learnings.md'" "the pointer block omitted the learnings command"
+
+  assert_not_contains "$out" "Omitted to stay inside the budget" \
+    "an under-budget checkpoint cut optional sections"
+  assert_contains "$out" "checkpoint captain marker" \
+    "an under-budget checkpoint dropped the context section"
+
+  pass "a re-emit inside its budget reports its bytes and prints every on-demand pointer"
+}
+
+# Over budget the cut takes the optional sections first: the lock line, the wake
+# queue, and the pointer block stay, and the checkpoint states plainly which
+# sections it dropped. The full digest is untouched, so this test also proves the
+# wake drain still presents its records and its generation-bound acknowledgement.
+test_reemit_checkpoint_omits_optional_sections_over_budget() {
+  local rec root home fakebin out pointer actual printed huge
+  rec=$(new_world reemit-budget)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # Three bytes of budget: every optional section must go, and the required
+  # sections are printed whole rather than cut.
+  printf '1\n' > "$home/config/startup-memory-budget"
+  huge='checkpoint bulky backlog marker'
+  awk -v m="$huge" 'BEGIN { for (i = 0; i < 3000; i++) printf "%s %05d\n", m, i }' > "$home/data/backlog.md"
+  awk 'BEGIN { for (i = 0; i < 2000; i++) printf "checkpoint bulky captain marker %05d\n", i }' > "$home/data/captain.md"
+  mkdir -p "$home/state"
+  printf '%s\n' 'working [at=1700000000]: checkpoint status line marker' > "$home/state/ck.status"
+  append_wake "$home/state" signal task-r "done: checkpoint wake marker" || fail "seed wake failed"
+
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+
+  assert_contains "$out" "lock acquired: harness pid" "the over-budget checkpoint dropped the lock line"
+  assert_contains "$out" "done: checkpoint wake marker" "the over-budget checkpoint dropped the wake queue"
+  assert_contains "$out" "WAKE_ACK_REQUIRED:" "the over-budget checkpoint dropped the wake acknowledgement"
+  assert_contains "$out" "NETWORK CHECKS" "the over-budget checkpoint dropped the network verdict"
+  pointer=$(printf '%s\n' "$out" | sed -n '/--- CONTEXT TRUNCATED: re-emit checkpoint printed/,/--- END CONTEXT TRUNCATED ---/p')
+  assert_contains "$pointer" "Omitted to stay inside the budget (each is still on disk): bootstrap diagnostics, supervision operating instructions, fleet state, context files" \
+    "the over-budget checkpoint did not state plainly which sections it omitted"
+  assert_contains "$pointer" "The required sections alone exceed the" \
+    "the over-budget checkpoint did not report that the required sections alone exceed the budget"
+  assert_contains "$pointer" "cat '$home/data/learnings.md'" "the over-budget checkpoint dropped its pointer commands"
+
+  printf '%s\n' "$out" | grep -q "$huge 00000" \
+    && fail "the over-budget checkpoint reprinted the bulky backlog"
+  printf '%s\n' "$out" | grep -q "checkpoint bulky captain marker 00000" \
+    && fail "the over-budget checkpoint reprinted the bulky context files"
+  printed=$(printf '%s\n' "$pointer" | sed -n 's/.*printed \([0-9][0-9]*\) of about .*/\1/p')
+  actual=$(printf '%s\n' "$out" | LC_ALL=C wc -c | tr -d '[:space:]')
+  [ "$actual" = "$printed" ] || fail "the over-budget checkpoint reported $printed printed bytes but emitted $actual"
+
+  [ -f "$home/data/backlog.md" ] && [ -f "$home/data/captain.md" ] \
+    || fail "the checkpoint path deleted durable records"
+
+  pass "an over-budget re-emit cuts the optional sections first and says which ones it dropped"
+}
+
+# A genuine startup, a new session, or a lock reclaim still prints the full
+# digest; only the re-emit path is bounded.
+test_full_startup_digest_is_unchanged() {
+  local rec root home fakebin out
+  rec=$(new_world full-startup-unchanged)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  printf '%s\n' '- demo [no-mistakes] - a demo project' > "$home/data/projects.md"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "SESSION START - $home" "a full startup lost its digest header"
+  assert_contains "$out" "READ-ONCE CONTRACT" "a full startup lost the read-once contract"
+  assert_contains "$out" "FLEET STATE" "a full startup lost the fleet-state digest"
+  assert_contains "$out" "CONTEXT" "a full startup lost the context digest"
+  assert_contains "$out" "NEXT STEP" "a full startup lost its closing reminder"
+  assert_contains "$out" "- demo [no-mistakes] - a demo project" "a full startup stopped printing projects.md"
+  assert_not_contains "$out" "CONTEXT TRUNCATED: re-emit checkpoint printed" \
+    "a full startup printed the bounded re-emit checkpoint"
+  assert_not_contains "$out" "@@FM-REEMIT" \
+    "an internal re-emit capture marker leaked into the digest"
+
+  pass "a full startup digest is unchanged by the bounded re-emit path"
 }
 
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact() {
@@ -3213,6 +3358,9 @@ test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
+test_reemit_checkpoint_reports_bytes_and_pointer_commands
+test_reemit_checkpoint_omits_optional_sections_over_budget
+test_full_startup_digest_is_unchanged
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh

@@ -211,9 +211,17 @@
 #             projection cleanup and bootstrap's six mutating sweeps (fleet
 #             sync, same-home backlog reconciliation, secondmate convergence and
 #             liveness, pending remote handoff retry, X-mode
-#             artifact writes) - and
-#             re-emit the rest. Wake-queue presentation is NOT skipped: queued
-#             records are this turn's work queue, they arrived after startup,
+#             artifact writes) - and print a bounded checkpoint instead of the
+#             whole digest. The harness delivers this stdout straight into model
+#             context, so an unbounded reprint costs its full size on every
+#             rebuild; the checkpoint carries the lock line, the wake queue (with
+#             its open decisions and unread status lines), the network verdict,
+#             the extension load state, the away/quiet posture, and one pointer
+#             block naming the command that reads each durable record. Its whole
+#             size is bounded by config/startup-memory-budget, the setting that
+#             already bounds curated memory. Wake-queue presentation is NOT
+#             skipped: queued records are this turn's work queue, they arrived
+#             after startup,
 #             and a session that owns the lock is exactly the session that must
 #             handle and acknowledge them. Lock acquisition still runs, because
 #             ownership must be re-verified rather than assumed: fm-lock.sh
@@ -818,19 +826,293 @@ EOF
   fi
 }
 
+# --- context re-emit checkpoint --------------------------------------------
+# A re-emit runs after /clear or a compaction, and Pi delivers this command's
+# stdout straight into model context. Reprinting the whole fleet digest there
+# costs about 58,800 characters (roughly 14,700 tokens) on every rebuild, so the
+# re-emit prints a BOUNDED CHECKPOINT instead: the lock line, the wake queue,
+# actionable open decisions and unread status lines (both carried by the drain),
+# the network verdict, the Pi extension load state, the away/quiet posture, and
+# one pointer block naming the command that reads each durable record on demand.
+# The full digest a genuine startup, a new session, or a lock reclaim prints is
+# unchanged. Nothing is deleted: every record stays exactly where it is, and the
+# pointer block reaches all of it.
+#
+# The whole checkpoint is bounded by the SAME config/startup-memory-budget
+# setting that already bounds curated memory. One deliberate exception stays
+# outside the cut: a drifted Pi compact still prints the complete current
+# AGENTS.md, because that is the instruction refresh contract, not the fleet
+# digest. Section bodies are captured with optional-section markers and assembled
+# at the end, because the budget cut has to see the entire payload before it can
+# drop the optional sections; a reprint left unbounded is the defect this path
+# exists to remove.
+REEMIT_CAPTURE=
+REEMIT_OPT_BEGIN_MARK='@@FM-REEMIT-OPT-BEGIN@@'
+REEMIT_OPT_END_MARK='@@FM-REEMIT-OPT-END@@'
+
+# reemit_capture_begin: redirect the digest body into a capture file so the
+# checkpoint can be measured and assembled before it reaches model context. If
+# the capture cannot be created the re-emit degrades to the previous streaming
+# behaviour, which costs context but never correctness.
+reemit_capture_begin() {
+  [ "$REEMIT" -eq 1 ] || return 0
+  REEMIT_CAPTURE=$(mktemp "${TMPDIR:-/tmp}/fm-reemit-capture.XXXXXX" 2>/dev/null) || {
+    REEMIT_CAPTURE=
+    return 0
+  }
+  exec 6>&1
+  exec >"$REEMIT_CAPTURE"
+}
+
+# reemit_optional_begin <label> / reemit_optional_end: bracket a section the
+# budget may drop. The markers are capture-only and never reach stdout in
+# either mode.
+reemit_optional_begin() {  # <section label>
+  [ "$REEMIT" -eq 1 ] || return 0
+  [ -n "$REEMIT_CAPTURE" ] || return 0
+  printf '%s%s\n' "$REEMIT_OPT_BEGIN_MARK" "$1"
+}
+
+reemit_optional_end() {
+  [ "$REEMIT" -eq 1 ] || return 0
+  [ -n "$REEMIT_CAPTURE" ] || return 0
+  printf '%s\n' "$REEMIT_OPT_END_MARK"
+}
+
+reemit_bytes() {  # <path>: exact byte size, 0 when unreadable
+  local bytes
+  bytes=$(LC_ALL=C wc -c < "$1" 2>/dev/null | tr -d '[:space:]') || bytes=
+  case "$bytes" in ''|*[!0-9]*) bytes=0 ;; esac
+  printf '%s\n' "$bytes"
+}
+
+# reemit_records_bytes: the on-disk size of every durable record the full digest
+# reprints, which is the total the checkpoint pointer block reports.
+reemit_records_bytes() {
+  local total=0 file
+  for file in "$DATA/backlog.md" "$DATA/projects.md" "$DATA/secondmates.md" \
+    "$DATA/captain.md" "$DATA/captain-shared.md" "$DATA/learnings.md" \
+    "$STATE"/*.meta "$STATE"/*.status; do
+    [ -f "$file" ] || continue
+    total=$((total + $(reemit_bytes "$file")))
+  done
+  printf '%s\n' "$total"
+}
+
+# reemit_budget_bytes: the checkpoint cap in bytes, read through the same owner
+# library the curated-memory cap uses. An unreadable setting falls back to that
+# library's published default and the pointer block says so; the re-emit is
+# never left unbounded.
+reemit_budget_bytes() {
+  local budget
+  if fm_startup_memory_budget_read "$CONFIG" >/dev/null 2>&1; then
+    budget=$FM_STARTUP_MEMORY_BUDGET_VALUE
+  else
+    budget=$FM_STARTUP_MEMORY_BUDGET_DEFAULT
+    REEMIT_BUDGET_NOTE="config/startup-memory-budget is unreadable ($FM_STARTUP_MEMORY_BUDGET_ERROR); its default $FM_STARTUP_MEMORY_BUDGET_DEFAULT applies"
+  fi
+  awk -v b="$budget" 'BEGIN { printf "%d", b * 3 }'
+}
+
+reemit_omitted_list() {  # <name>...: comma-separated, in digest order
+  local first=1 name
+  for name in "$@"; do
+    if [ "$first" -eq 1 ]; then
+      printf '%s' "$name"
+      first=0
+    else
+      printf ', %s' "$name"
+    fi
+  done
+}
+
+# reemit_pointer_block <printed-bytes> <records-bytes> <budget-bytes> <omitted>
+# Mirrors the existing CONTEXT TRUNCATED style: it states the bytes printed and
+# the bytes still on disk, and every command is copy-pasteable.
+reemit_pointer_block() {
+  local printed=$1 records=$2 budget=$3 omitted=$4 total
+  # The full digest would print this checkpoint's own sections AND every durable
+  # record they summarize, so the reported total is both together. It is an
+  # estimate of that reprint, and the checkpoint says so.
+  total=$((printed + records))
+  printf '\n--- CONTEXT TRUNCATED: re-emit checkpoint printed %s of about %s bytes (this checkpoint plus the durable records the full digest reprints), bounded by config/startup-memory-budget ---\n' \
+    "$printed" "$total"
+  printf 'The full fleet digest was NOT rewritten and nothing was deleted; read any part on demand.\n'
+  if [ -n "$omitted" ]; then
+    printf 'Omitted to stay inside the budget (each is still on disk): %s.\n' "$omitted"
+  fi
+  if [ "$printed" -gt "$budget" ]; then
+    printf 'The required sections alone exceed the %s-byte budget; they are printed whole rather than cut.\n' \
+      "$budget"
+  fi
+  printf 'Read any part on demand, exactly as the full digest would have shown it:\n'
+  printf '  full backlog:  bin/fm-tasks-axi.sh list --file %s\n' "$(memory_shell_quote "$DATA/backlog.md")"
+  printf '                 bin/fm-tasks-axi.sh show <id> --full --file %s\n' "$(memory_shell_quote "$DATA/backlog.md")"
+  printf '  task meta:     cat %s/<task>.meta\n' "$(memory_shell_quote "$STATE")"
+  printf '  status tails:  tail -n %s %s/<task>.status\n' "$STATUS_TAIL" "$(memory_shell_quote "$STATE")"
+  printf '  projects:      cat %s\n' "$(memory_shell_quote "$DATA/projects.md")"
+  printf '  secondmates:   cat %s\n' "$(memory_shell_quote "$DATA/secondmates.md")"
+  printf '  captain:       cat %s\n' "$(memory_shell_quote "$DATA/captain.md")"
+  printf '  shared captain: cat %s\n' "$(memory_shell_quote "$DATA/captain-shared.md")"
+  printf '  learnings:     cat %s\n' "$(memory_shell_quote "$DATA/learnings.md")"
+  printf -- '--- END CONTEXT TRUNCATED ---\n'
+}
+
+# reemit_checkpoint_print <capture>: split the captured body into ordered parts,
+# keep every required part, and keep optional parts only while the whole
+# checkpoint stays inside the budget. Required parts are the lock line, the wake
+# queue, the network verdict, and this pointer block; they are never cut.
+reemit_checkpoint_print() {
+  local capture=$1 dir index_file file kind name path
+  local budget_bytes records_total core used printed pointer_size=0
+  local omitted_names drop i try pass stable
+  local -a kinds=() names=() paths=() sizes=() selected=() omitted=()
+  REEMIT_BUDGET_NOTE=
+
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/fm-reemit-parts.XXXXXX" 2>/dev/null) || {
+    cat "$capture"
+    return 0
+  }
+  index_file="$dir/index"
+  # Split on the optional-section markers. Consecutive required lines become one
+  # required part so the original digest order survives an omitted optional.
+  awk -v dir="$dir" '
+    BEGIN { n = 0; cur = ""; req = "" }
+    index($0, "@@FM-REEMIT-OPT-BEGIN@@") == 1 {
+      name = substr($0, length("@@FM-REEMIT-OPT-BEGIN@@") + 1)
+      n++
+      cur = dir "/part-" n
+      printf "optional|%s|%s\n", name, cur >> (dir "/index")
+      req = ""
+      next
+    }
+    index($0, "@@FM-REEMIT-OPT-END@@") == 1 { cur = ""; req = ""; next }
+    {
+      if (cur == "") {
+        if (req == "") {
+          n++
+          req = dir "/part-" n
+          printf "required||%s\n", req >> (dir "/index")
+        }
+        print > req
+      } else {
+        print > cur
+      }
+    }
+  ' "$capture"
+  if [ ! -f "$index_file" ]; then
+    cat "$capture"
+    rm -rf "$dir" 2>/dev/null || true
+    return 0
+  fi
+  # A non-whitespace separator keeps the empty required name field: tab
+  # collapses as IFS whitespace and would shift the path into the name.
+  while IFS='|' read -r kind name path; do
+    kinds+=("$kind")
+    names+=("$name")
+    paths+=("$path")
+    sizes+=("$(reemit_bytes "$path")")
+  done < "$index_file"
+
+  budget_bytes=$(reemit_budget_bytes)
+  records_total=$(reemit_records_bytes)
+  core=0
+  for i in "${!kinds[@]}"; do
+    [ "${kinds[$i]}" != required ] || core=$((core + ${sizes[$i]}))
+  done
+
+  # Keep optional sections in digest order while each still fits, so the budget
+  # cut takes the optional sections first and never the required ones.
+  used=$core
+  for i in "${!kinds[@]}"; do
+    if [ "${kinds[$i]}" = required ]; then
+      selected[i]=1
+      continue
+    fi
+    if [ $((used + ${sizes[$i]})) -le "$budget_bytes" ]; then
+      selected[i]=1
+      used=$((used + ${sizes[$i]}))
+    else
+      selected[i]=0
+    fi
+  done
+
+  # The pointer block states the printed byte count, so its own length is part
+  # of that count. Converge on the fixed point, then drop optional sections
+  # (last first) until the whole checkpoint fits. At most one optional per pass
+  # can go, and the loop is bounded by the part count.
+  pass=0
+  while : ; do
+    printed=$used
+    stable=0
+    try=0
+    while [ "$try" -lt 8 ]; do
+      try=$((try + 1))
+      omitted=()
+      for i in "${!kinds[@]}"; do
+        [ "${kinds[$i]}" = optional ] || continue
+        [ "${selected[$i]}" = 1 ] || omitted+=("${names[$i]}")
+      done
+      omitted_names=$(reemit_omitted_list ${omitted[@]+"${omitted[@]}"})
+      pointer=$(reemit_pointer_block "$printed" "$records_total" "$budget_bytes" "$omitted_names")
+      pointer_size=$(printf '%s\n' "$pointer" | LC_ALL=C wc -c | tr -d '[:space:]')
+      case "$pointer_size" in ''|*[!0-9]*) pointer_size=0 ;; esac
+      if [ $((used + pointer_size)) -eq "$printed" ]; then
+        stable=1
+        break
+      fi
+      printed=$((used + pointer_size))
+    done
+    [ "$stable" -eq 1 ] && [ "$printed" -le "$budget_bytes" ] && break
+    drop=-1
+    for i in "${!kinds[@]}"; do
+      [ "${kinds[$i]}" = optional ] || continue
+      [ "${selected[$i]}" = 1 ] && drop=$i
+    done
+    [ "$drop" -ge 0 ] || break
+    selected[drop]=0
+    used=$((used - ${sizes[$drop]}))
+    pass=$((pass + 1))
+    [ "$pass" -le 16 ] || break
+  done
+
+  for i in "${!kinds[@]}"; do
+    [ "${selected[$i]}" = 1 ] || continue
+    cat "${paths[$i]}"
+  done
+  printf '%s\n' "$pointer"
+  if [ -n "$REEMIT_BUDGET_NOTE" ]; then
+    printf 'BUDGET NOTE: %s.\n' "$REEMIT_BUDGET_NOTE"
+  fi
+  rm -rf "$dir" 2>/dev/null || true
+}
+
+# reemit_capture_finish: restore stdout and print the assembled checkpoint.
+reemit_capture_finish() {
+  [ "$REEMIT" -eq 1 ] || return 0
+  exec >&6 6>&-
+  [ -n "$REEMIT_CAPTURE" ] || return 0
+  reemit_checkpoint_print "$REEMIT_CAPTURE"
+  rm -f "$REEMIT_CAPTURE" 2>/dev/null || true
+}
+
 AGENTS_START_HASH=
 if [ "$REEMIT" -eq 0 ] && [ "$SESSION_SOURCE" = startup ]; then
   AGENTS_START_HASH=$(hash_file_sha256 "$FM_ROOT/AGENTS.md" 2>/dev/null || true)
 fi
 
+reemit_capture_begin
 if [ "$REEMIT" -eq 1 ]; then
   section "SESSION START (CONTEXT RE-EMIT) - $FM_HOME"
   printf 'This session already took the helm at its own startup and has only lost its\n'
-  printf 'context. Lock ownership is re-verified and the durable records below are\n'
-  printf 'reprinted, but the sweeps startup already reconciled - project clone refresh,\n'
-  printf 'secondmate convergence and liveness, pending remote handoff\n'
-  printf 'retry, X-mode artifact writes, and stale Herdr child cleanup - are NOT repeated.\n'
-  printf 'Queued wakes ARE still drained: they arrived after startup and are this turn work.\n'
+  printf 'context. This is a BOUNDED CHECKPOINT, not the full digest: the durable\n'
+  printf 'records are not reprinted here because every one of them is still on disk,\n'
+  printf 'and the pointer block at the end names the command that reads each one.\n'
+  printf 'The sweeps startup already reconciled - project clone refresh, secondmate\n'
+  printf 'convergence and liveness, pending remote handoff retry, X-mode artifact\n'
+  printf 'writes, and stale Herdr child cleanup - are NOT repeated.\n'
+  printf 'Lock ownership is re-verified and queued wakes ARE still drained: they\n'
+  printf 'arrived after startup and are this turn work.\n'
 else
   section "SESSION START - $FM_HOME"
 fi
@@ -891,6 +1173,7 @@ fi
 # the deferred stage above is running right now, and running it twice would both
 # re-block this digest and race the worker's sweeps against themselves.
 stage bootstrap
+reemit_optional_begin 'bootstrap diagnostics'
 subsection "BOOTSTRAP"
 if [ "$READ_ONLY" -eq 1 ]; then
   BOOT_OUT=$(FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
@@ -910,6 +1193,7 @@ if [ -n "$BOOT_OUT" ]; then
 else
   printf '(silent - all good)\n'
 fi
+reemit_optional_end
 
 # --- 3. wake-drain ---------------------------------------------------------
 # The inactive-outcome startup scan runs in the deferred worker launched above,
@@ -977,6 +1261,10 @@ if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
   if ! fm_pi_extension_loaded "$PI_WATCH_MARKER" "$PI_WATCH_VERSION" "$PI_LOCK" active \
     || ! fm_pi_extension_loaded "$PI_TURNEND_MARKER" "$PI_TURNEND_VERSION" "$PI_LOCK"; then
     printf 'PI_WATCH_EXTENSION: not loaded - approve Pi project trust once per clone, then restart %s so %s and %s auto-load for turn-end guard and background wake coverage; use -e %s -e %s only if project hooks are not trusted\n' "$PI_RESTART_COMMAND" "$PI_TURNEND_EXT" "$PI_EXT" "$PI_TURNEND_EXT" "$PI_EXT"
+  elif [ "$REEMIT" -eq 1 ]; then
+    # The checkpoint is the only Pi section a re-emit prints, so it states the
+    # load verdict either way instead of staying silent when the markers match.
+    printf 'PI_WATCH_EXTENSION: loaded - watch and turn-end guard markers are current for this session\n'
   fi
 fi
 # omp (Oh My Pi) has no project-trust gate: it auto-discovers <cwd>/.omp/extensions
@@ -995,14 +1283,28 @@ if [ "$PRIMARY_HARNESS" = omp ]; then
   if ! fm_pi_extension_loaded "$OMP_WATCH_MARKER" "$OMP_WATCH_VERSION" "$OMP_LOCK" \
     || ! fm_pi_extension_loaded "$OMP_TURNEND_MARKER" "$OMP_TURNEND_VERSION" "$OMP_LOCK"; then
     printf 'OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory so %s and %s auto-load from .omp/extensions/ for turn-end guard and background wake coverage; pass -e %s -e %s only when omp must start from another directory, never together with auto-discovery (omp loads a file named both ways twice)\n' "$OMP_TURNEND_EXT" "$OMP_EXT" "$OMP_TURNEND_EXT" "$OMP_EXT"
+  elif [ "$REEMIT" -eq 1 ]; then
+    printf 'OMP_WATCH_EXTENSION: loaded - watch and turn-end guard markers are current for this session\n'
   fi
 fi
+# The away/quiet posture is required checkpoint content: the unconditional
+# supervision block is optional here, and a resumed session must never
+# supervise a held-for-return home as if the captain were present.
+if [ "$REEMIT" -eq 1 ]; then
+  if [ "$AFK_PRESENT" -eq 1 ]; then
+    printf 'posture: %s mode recorded - bin/fm-afk-contract.sh readback for the mandate\n' "$AFK_MODE"
+  else
+    printf 'posture: attended (no away or quiet record)\n'
+  fi
+fi
+reemit_optional_begin 'supervision operating instructions'
 "$SCRIPT_DIR/fm-supervision-instructions.sh" \
   --harness "$PRIMARY_HARNESS" \
   --read-only "$READ_ONLY" \
   --afk "$AFK_PRESENT" \
   --afk-mode "$AFK_MODE" \
   --x-mode "$X_MODE_PRESENT"
+reemit_optional_end
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
@@ -1011,8 +1313,11 @@ fi
 # arrives BEFORE its subject, it also names the one condition that voids it -
 # a stage that never ran, which the truncation banner names by stage.
 stage read-once
-section "READ-ONCE CONTRACT"
-cat <<'EOF'
+# A re-emit prints no bulk sections, so the read-once contract has no subject
+# there; the checkpoint pointer block replaces it.
+if [ "$REEMIT" -eq 0 ]; then
+  section "READ-ONCE CONTRACT"
+  cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta,
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, and data/secondmates.md.
@@ -1039,11 +1344,13 @@ Go to a source directly only when:
   - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
     which case that stage's sources were never emitted and must be reconciled.
 EOF
+fi
 
 # --- 6. fleet-state digest ---------------------------------------------
 # Before CONTEXT: see this file's ORDERING note. Live fleet identity is what a
 # truncated tail must never take.
 stage fleet-state
+reemit_optional_begin 'fleet state'
 section "FLEET STATE"
 print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
@@ -1147,6 +1454,7 @@ if fm_pf_relay_active "$FM_HOME" \
     printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
   fi
 fi
+reemit_optional_end
 
 # --- 7. network checks ------------------------------------------------------
 # Deliberately here and not later: these lines are actionable (a stuck clone, a
@@ -1173,56 +1481,65 @@ fi
 # with one targeted read, so it is the cheapest thing for a truncated tail to
 # take (see this file's ORDERING note).
 stage context
+reemit_optional_begin 'context files'
 section "CONTEXT"
 print_file_or_absent "$DATA/projects.md" "data/projects.md"
 print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
 print_memory_file_or_absent "$DATA/captain.md" "data/captain.md"
 print_memory_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
 print_memory_file_or_absent "$DATA/learnings.md" "data/learnings.md"
+reemit_optional_end
 
 # --- 9. closing reminder -----------------------------------------------
-stage next-step
-section "NEXT STEP"
-if [ "$READ_ONLY" -eq 1 ]; then
-  cat <<'EOF'
+# A re-emit prints no bulk sections, so its closing reminder is the pointer
+# block the checkpoint assembly appends; the full-digest reminder below would
+# point at sections that were deliberately not reprinted.
+if [ "$REEMIT" -eq 0 ]; then
+  stage next-step
+  section "NEXT STEP"
+  if [ "$READ_ONLY" -eq 1 ]; then
+    cat <<'EOF'
 This session did not acquire the fleet lock. Stay read-only: do not arm,
 drain, spawn, steer, merge, or repair fleet state from here. Only a session
 with verified fleet-lock ownership may perform mutable follow-up.
 
 EOF
-elif [ "$AFK_PRESENT" -eq 1 ] && [ "$AFK_MODE" = quiet ]; then
-  cat <<'EOF'
+  elif [ "$AFK_PRESENT" -eq 1 ] && [ "$AFK_MODE" = quiet ]; then
+    cat <<'EOF'
 Quiet mode is active. Follow the supervision operating instructions block
 above: load /quiet and ensure the daemon is running, because the daemon owns
 watcher supervision. Ordinary captain chat does not exit it; only an
 explicit /quiet off does.
 
 EOF
-elif [ "$AFK_PRESENT" -eq 1 ]; then
-  cat <<'EOF'
+  elif [ "$AFK_PRESENT" -eq 1 ]; then
+    cat <<'EOF'
 Away mode is active. Follow the supervision operating instructions block above:
 load /afk and ensure the daemon is running, because the daemon owns watcher
 supervision.
 
 EOF
-elif [ -f "$CONFIG/x-mode.env" ]; then
-  cat <<EOF
+  elif [ -f "$CONFIG/x-mode.env" ]; then
+    cat <<EOF
 Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
 X mode is active, so the emitted block's cadence instruction applies.
 This script never starts supervision itself.
 
 EOF
-else
-cat <<EOF
+  else
+    cat <<EOF
 Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
 This script never starts supervision itself.
 
 EOF
-fi
-cat <<'EOF'
+  fi
+  cat <<'EOF'
 The digest above is complete for this session start. The READ-ONCE CONTRACT
 section near the top of it governs what may still be read from disk.
 EOF
+fi
+
+reemit_capture_finish
 
 if [ "$READ_ONLY" -eq 0 ] && [ "$REEMIT" -eq 0 ]; then
   COMPLETION_RECORDED=0

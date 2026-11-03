@@ -63,7 +63,10 @@ The run wrapper learns the source in one of two ways:
 - It takes `--source <name>` when the adapter knows the source natively.
 - Otherwise it reads the `source` field from a Claude/Codex-shaped JSON hook payload on stdin.
 
-A re-emit (`--reemit`) reprints the digest for a process that already has the helm and lost only its context.
+A re-emit (`--reemit`) prints a bounded checkpoint for a process that already has the helm and lost only its context.
+The checkpoint replaces the full digest reprint, because the harness puts this stdout straight into model context.
+It carries the lock line, the wake queue, the network verdict, and the extension load state, plus one pointer block that names the command reading each durable record.
+Its whole size is bounded by `config/startup-memory-budget`, the same setting that bounds curated memory.
 
 | Source | Action | Why |
 | --- | --- | --- |
@@ -115,6 +118,7 @@ The requested session start remains idempotent.
 `bin/fm-session-start.sh --reemit` owns these re-emit details:
 
 - Which work a re-emit skips.
+- Which sections its bounded checkpoint prints, and which it points at instead.
 - Its true-start AGENTS.md baseline.
 - Its supported stale-instruction refresh pairs.
 
