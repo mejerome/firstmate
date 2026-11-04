@@ -15,8 +15,13 @@
 #     --append-system-prompt, and no --no-mcp or --no-extensions either (each of
 #     those would change the default behavior), while still recording
 #     tool_profile=incident
+#   - default and incident launch lines from the same fixture are byte-identical,
+#     because incident IS the default and neither carries any monitor flag
 #   - the compact lane contract exists and stays inside its size ceiling, because
 #     it is the file that replaces the supervisor contract monitor stops loading
+#   - the compact lane contract names the tools and surfaces the monitoring lane
+#     demonstrably uses: bash, read, the watcher, the turn-end guard, and the
+#     skill path pattern
 #   - a monitor spawn whose code root has no compact lane contract is refused by
 #     path instead of launching with neither contract
 #   - a monitor no-mistakes spend refuses when the pipeline skill cannot be
@@ -281,6 +286,24 @@ case_compact_contract_fits_its_ceiling() {
   pass "contract: $bytes bytes, about $tokens tokens, inside the 2,000-token ceiling"
 }
 
+case_compact_contract_covers_retained_surfaces() {
+  local contract
+  contract="$ROOT/$CONTRACT_REL"
+  # The compact lane contract is an owned agent-runtime text contract. Read it
+  # and assert the surfaces the monitoring lane demonstrably uses are named.
+  assert_contains "$(cat "$contract")" 'bash' \
+    "the compact contract must name bash as a retained surface"
+  assert_contains "$(cat "$contract")" 'read' \
+    "the compact contract must name read as a retained surface"
+  assert_contains "$(cat "$contract")" 'the watcher' \
+    "the compact contract must name the watcher as a retained surface"
+  assert_contains "$(cat "$contract")" 'turn-end guard' \
+    "the compact contract must name the turn-end guard as a retained surface"
+  assert_contains "$(cat "$contract")" '.agents/skills/<name>/SKILL.md' \
+    "the compact contract must name the skill path pattern for loading skills by path"
+  pass "contract: the compact contract names the retained tools and the skill path pattern"
+}
+
 case_missing_contract_is_refused_by_path() {
   local rec out status bare_root
   rec=$(make_tool_profile_case tp-nocontract pi)
@@ -337,6 +360,65 @@ case_secondmate_accepts_the_monitor_profile() {
   pass "secondmate: the monitor profile is accepted for a mate launch"
 }
 
+case_default_and_incident_launch_lines_match() {
+  local rec out1 out2 rc1 rc2 launch1 launch2 meta1 meta2
+  # One fixture, two spawns: one without the flag (default), one explicit.
+  # Both must produce byte-identical launch lines because incident is the
+  # default profile; neither may carry any monitor-specific flag.
+  rec=$(make_tool_profile_case tp-matching pi)
+  read_tool_profile_case "$rec"
+
+  # First spawn: default (no --tool-profile)
+  : > "$LAUNCH_LOG"
+  out1=$(run_tool_profile_spawn --harness pi)
+  rc1=$?
+  launch1=$(launch_line)
+  meta1="$HOME_DIR/state/$CASE_ID.meta"
+
+  expect_code 0 "$rc1" "the first (default) spawn should succeed"
+  assert_contains "$out1" "tool_profile=incident" \
+    "the default spawned line must state the incident profile"
+  assert_contains "$(cat "$meta1")" 'tool_profile=incident' \
+    "the default task record must state the incident profile"
+
+  # Second spawn: explicit --tool-profile incident on the SAME fixture
+  : > "$LAUNCH_LOG"
+  out2=$(run_tool_profile_spawn --harness pi --tool-profile incident)
+  rc2=$?
+  launch2=$(launch_line)
+
+  expect_code 0 "$rc2" "the explicit incident spawn should succeed"
+  assert_contains "$out2" "tool_profile=incident" \
+    "the incident spawned line must state the incident profile"
+
+  # The two launch lines must be byte-identical: incident IS the default.
+  assert_equals "$launch1" "$launch2" \
+    "default and incident launch lines must be byte-identical"
+
+  # Neither launch carries any monitor-specific flag.
+  assert_not_contains "$launch1" '--exclude-tools' \
+    "the default launch must not exclude any tool"
+  assert_not_contains "$launch2" '--exclude-tools' \
+    "the incident launch must not exclude any tool"
+  assert_not_contains "$launch1" '-nc' \
+    "the default launch must not stop loading context files"
+  assert_not_contains "$launch2" '-nc' \
+    "the incident launch must not stop loading context files"
+  assert_not_contains "$launch1" '--append-system-prompt' \
+    "the default launch must not replace the supervisor contract"
+  assert_not_contains "$launch2" '--append-system-prompt' \
+    "the incident launch must not replace the supervisor contract"
+  assert_not_contains "$launch1" '-ns' \
+    "the default launch must not stop loading the skills index"
+  assert_not_contains "$launch2" '-ns' \
+    "the incident launch must not stop loading the skills index"
+  assert_not_contains "$launch1" '--skill' \
+    "the default launch must not name any explicit skill"
+  assert_not_contains "$launch2" '--skill' \
+    "the incident launch must not name any explicit skill"
+  pass "default and incident: launch lines are byte-identical and carry none of the monitor flags"
+}
+
 case_unknown_profile_is_refused_by_name() {
   local rec out status
   rec=$(make_tool_profile_case tp-unknown pi)
@@ -385,11 +467,13 @@ case_relaunch_reuses_the_recorded_profile() {
 
 case_monitor_records_exclusion_flags
 case_compact_contract_fits_its_ceiling
+case_compact_contract_covers_retained_surfaces
 case_missing_contract_is_refused_by_path
 case_missing_pipeline_skill_is_refused
 case_secondmate_accepts_the_monitor_profile
 case_default_profile_is_unchanged
 case_explicit_incident_profile_keeps_every_tool
+case_default_and_incident_launch_lines_match
 case_unknown_profile_is_refused_by_name
 case_inexpressible_harness_is_refused_by_name
 case_relaunch_reuses_the_recorded_profile
