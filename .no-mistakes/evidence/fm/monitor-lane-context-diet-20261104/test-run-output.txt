@@ -1,0 +1,11 @@
+ok - monitor: the launch carries the whole lean surface and the record says monitor
+ok - contract: 4543 bytes, about 1135 tokens, inside the 2,000-token ceiling
+ok - contract: a missing compact contract is refused by path before any launch
+ok - skills: a missing pipeline skill refuses a no-mistakes monitor spawn
+ok - secondmate: the monitor profile is accepted for a mate launch
+ok - default: no exclusion flag is emitted and the record says incident
+ok - incident: the full tool set, contract, and skills index stay available
+ok - unknown profile: refused by name before any record or launch
+ok - inexpressible harness: refused by name instead of launching without the profile
+ok - relaunch: the recorded tool profile is reused, never overridden
+# all fm-spawn-tool-profile tests passed

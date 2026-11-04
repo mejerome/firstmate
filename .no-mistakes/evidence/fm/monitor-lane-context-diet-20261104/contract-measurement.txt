@@ -1,0 +1,3 @@
+Contract measurement:
+4543 docs/monitor-lane-contract.md
+Est tokens (bytes/4): 1135
