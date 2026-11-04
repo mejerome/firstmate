@@ -1,0 +1,23 @@
+GitHub MCP Server running on stdio
+SearXNG URLs: http://192.168.68.7:8888/
+Context7 Documentation MCP Server v2.3.0 running on stdio
+pi - AI coding assistant with read, bash, edit, write tools
+
+Usage:
+  pi [options] [--] [@files...] [messages...]
+
+Commands:
+  pi install <source> [-l]     Install extension source and add to settings
+  pi remove <source> [-l]      Remove extension source from settings
+  pi uninstall <source> [-l]   Alias for remove
+  pi update [source|self|pi]   Update pi, extensions, or model catalogs
+  pi list                      List installed extensions from settings
+  pi config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
+  pi auth <command>            Print credentials or check provider readiness
+  pi mcp <command>             Check MCP servers, sign in to or out of OAuth servers
+  pi <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
+
+Options:
+---
+pi version: 1.4.0
+exit code: 0

@@ -1,0 +1,8 @@
+ok - monitor: the launch carries the MCP exclusion flags and the record says monitor
+ok - default: no exclusion flag is emitted and the record says incident
+ok - incident: the full tool set stays available
+ok - unknown profile: refused by name before any record or launch
+ok - inexpressible harness: refused by name instead of launching without the profile
+ok - relaunch: the recorded tool profile is reused, never overridden
+# all fm-spawn-tool-profile tests passed
+spawn tests exit: 0

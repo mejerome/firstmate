@@ -1,0 +1,5 @@
+ok - secondmate home: bounded checkpoint keeps lock, wake queue, and read commands
+ok - primary home: the full digest is unchanged
+ok - escape: FM_SESSION_START_FULL_DIGEST=1 prints the full digest in a secondmate home
+# all fm-session-start-secondmate-checkpoint tests passed
+session-start tests exit: 0
