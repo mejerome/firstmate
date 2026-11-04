@@ -641,6 +641,7 @@ There is no shared learnings file by captain decision.
 ## Startup memory budget (config/startup-memory-budget)
 
 `config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` together.
+The same budget also bounds the re-emit checkpoint (`bin/fm-session-start.sh --reemit`), which uses the budget's byte equivalent (`value * 3`, the same 1-token-to-3-bytes approximation the memory files use) as its cap.
 The locked mutable bootstrap path materializes its visible default of `7500` estimated tokens in a primary home when the file is absent.
 
 ### Set and validate the budget
