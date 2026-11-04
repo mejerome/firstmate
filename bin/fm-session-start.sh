@@ -1390,6 +1390,7 @@ Go to a source directly only when:
   - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
     which case that stage's sources were never emitted and must be reconciled.
 EOF
+  fi
 fi
 
 # --- 6. fleet-state digest ---------------------------------------------

@@ -153,7 +153,7 @@ run_digest() {
   local extra_env=$1
   shift
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    $extra_env \
+    ${extra_env:+"$extra_env"} \
     FM_FAKE_HARNESS_PID="$$" \
     FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT_DIR" \
     PATH="$FAKEBIN_DIR:$BASE_PATH" FM_SESSION_START_TIMEOUT=90 \
