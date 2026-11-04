@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--tool-profile <monitor|incident>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--tool-profile <monitor|incident>]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--tool-profile <monitor|incident>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -87,6 +87,19 @@
 #   build agent's variant, keyed to the resolved model, inside the
 #   OPENCODE_CONFIG_CONTENT JSON its launch already carries (config schema
 #   verified on opencode 1.18.32); without a model the axis is recorded but omitted.
+#   --tool-profile <monitor|incident> is the tool surface this worker runs with.
+#   incident (the default, and every existing caller) loads the full tool set,
+#   including every configured MCP server, and emits no exclusion flag. monitor
+#   drops the MCP tool schemas a supervising mate never calls by passing the
+#   harness's own exclusion flag at launch: on pi and pi-signed that is
+#   --exclude-tools with the concrete server prefixes github-*, context7-*,
+#   firecrawl-*, searxng-*, and ra-h-os-*. A launch-time exclusion is deliberate:
+#   --no-mcp does not stop the project MCP extension and --no-extensions also
+#   drops the watcher and turn-end guard, so neither expresses this profile.
+#   Every other harness, and a raw launch command, REFUSES monitor by name rather
+#   than launching with an unexpressed profile. The resolved profile is recorded
+#   as tool_profile= in the task record, so supervision can tell which profile a
+#   worker runs; a relaunch reuses it and refuses the flag (AGENTS.md section 7).
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -349,6 +362,9 @@
 #     __PIAPPROVE__ optional --approve on a seeded Pi/pi-signed secondmate when
 #                  that executable advertises the flag (empty otherwise; session
 #                  trust for the launch cwd only, never a trust.json rewrite)
+#     __TOOLPROFILEFLAG__ optional launch-time tool exclusion for --tool-profile
+#                  monitor on the Pi family (its own leading space; empty for
+#                  every other harness and for the default incident profile)
 #     __PIRESUME__ optional relaunch-only `--session <reference>` that keeps a
 #                  Pi replacement on the session the endpoint's runtime already
 #                  reports (relaunch_resume_args below owns it; it supplies its
@@ -655,6 +671,7 @@ MODE=
 YOLO=
 BRANCH_PREFIX=fm/
 TRACEPARENT_ARG=
+TOOL_PROFILE=incident
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -663,6 +680,7 @@ MODE_SET=0
 YOLO_SET=0
 BRANCH_PREFIX_SET=0
 TRACEPARENT_SET=0
+TOOL_PROFILE_SET=0
 RELAUNCH=0
 POS=()
 want_value=
@@ -706,6 +724,10 @@ for a in "$@"; do
     traceparent)
       TRACEPARENT_ARG=$a
       TRACEPARENT_SET=1
+      ;;
+    tool-profile)
+      TOOL_PROFILE=$a
+      TOOL_PROFILE_SET=1
       ;;
     *)
       echo "error: internal parser state for --$want_value" >&2
@@ -765,6 +787,11 @@ for a in "$@"; do
     TRACEPARENT_ARG=${a#--traceparent=}
     TRACEPARENT_SET=1
     ;;
+  --tool-profile) want_value=tool-profile ;;
+  --tool-profile=*)
+    TOOL_PROFILE=${a#--tool-profile=}
+    TOOL_PROFILE_SET=1
+    ;;
   *) POS+=("$a") ;;
   esac
 done
@@ -800,6 +827,20 @@ done
   echo "error: --traceparent requires a non-empty value" >&2
   exit 1
 }
+[ "$TOOL_PROFILE_SET" -eq 0 ] || [ -n "$TOOL_PROFILE" ] || {
+  echo "error: --tool-profile requires a non-empty value" >&2
+  exit 1
+}
+# Closed set, refused by name: an unrecognized profile must never fall back to
+# the full tool set behind the caller's back, because the caller asked for a
+# smaller surface than the worker would then carry.
+case "$TOOL_PROFILE" in
+incident | monitor) ;;
+*)
+  echo "error: --tool-profile must be one of incident, monitor (got '$TOOL_PROFILE')" >&2
+  exit 1
+  ;;
+esac
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -844,6 +885,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
   [ "$BRANCH_PREFIX_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded ship branch; --branch-prefix cannot override it" >&2
+    exit 1
+  }
+  [ "$TOOL_PROFILE_SET" -eq 0 ] || {
+    echo "error: --relaunch reuses the task's recorded tool profile; --tool-profile cannot override it (a different tool surface is a new task, not a replacement worker)" >&2
     exit 1
   }
 else
@@ -951,6 +996,15 @@ spawn_remote_secondmate() {
     return 1
     ;;
   esac
+  # The remote launch carries only harness, model, effort, backend, and the
+  # trace carrier, so a tool profile cannot reach that host's pane. Refuse
+  # monitor by name instead of recording a profile the remote launch ignores.
+  if [ "$TOOL_PROFILE" = monitor ]; then
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    echo "error: --tool-profile monitor is not available for a remote secondmate spawn; the remote launch carries no tool-profile axis, so the exclusion would be silently dropped" >&2
+    return 1
+  fi
   model=${MODEL:--}
   effort=${EFFORT:--}
   if [ -z "$HARNESS_ARG" ] && [ -z "$positional" ]; then
@@ -1143,6 +1197,7 @@ spawn_remote_secondmate() {
     echo "tasktmp="
     echo "model=${model#-}"
     echo "effort=${effort#-}"
+    echo "tool_profile=$TOOL_PROFILE"
     echo "home=$home"
     echo "projects=$(secondmate_registry_field "$DATA/secondmates.md" "$id" projects)"
     echo "remote_host=$host"
@@ -1789,6 +1844,19 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
+  # A replacement worker keeps the tool surface its task was dispatched with, so
+  # a monitor mate is never silently promoted to the full set (or the reverse).
+  # A record written before this axis existed carries no tool_profile= line and
+  # resolves to the full incident set, exactly as that worker ran.
+  TOOL_PROFILE=$(fm_meta_get "$RELAUNCH_META" tool_profile)
+  case "$TOOL_PROFILE" in
+  '' | incident) TOOL_PROFILE=incident ;;
+  monitor) ;;
+  *)
+    echo "error: task $ID records an unknown tool profile '$TOOL_PROFILE'; refusing to relaunch it" >&2
+    exit 1
+    ;;
+  esac
   if [ "$KIND" = ship ]; then
     BRANCH=$(fm_meta_get "$RELAUNCH_META" branch)
     [ -n "$BRANCH" ] || BRANCH="fm/$ID"
@@ -2050,7 +2118,7 @@ launch_template() {
     ;;
   opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}__EFFORTFLAG__}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
   pi | pi-signed)
-    printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIRESUME__'
+    printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIRESUME____TOOLPROFILEFLAG__'
     if [ "$kind" = secondmate ]; then
       printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     else
@@ -2402,6 +2470,26 @@ fi
 # record exists. An absent pin selects nothing and leaves every later launch
 # step exactly as it was. A pinned Claude root is exported here as well, so the
 # trust registration below writes the store the worker will actually read.
+# Tool profile (header above): validated against the RESOLVED harness, before any
+# worktree, endpoint, or record exists, so a profile a harness cannot express is a
+# refusal that names the harness instead of a worker launched with a surface the
+# caller did not ask for. Only the canonical Pi family template can carry the
+# launch-time exclusion; a raw launch command has no placeholder to substitute, so
+# a bare `pi ...` raw command is refused too rather than silently ignoring it.
+if [ "$TOOL_PROFILE" = monitor ]; then
+  case "$HARNESS" in
+  pi | pi-signed)
+    [ "$RAW_LAUNCH" -eq 0 ] || {
+      echo "error: --tool-profile monitor requires the canonical --harness pi or pi-signed launch; a raw launch command carries no tool-profile placeholder, so the exclusion would be silently dropped" >&2
+      exit 1
+    }
+    ;;
+  *)
+    echo "error: --tool-profile monitor is not expressible on harness '${HARNESS:-unknown}'; it needs a launch-time tool exclusion, which only pi and pi-signed provide here. Use the default incident profile on that harness." >&2
+    exit 1
+    ;;
+  esac
+fi
 RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
 WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
@@ -4890,7 +4978,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx tool_profile", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4909,6 +4997,11 @@ preserve_relaunch_meta() {
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  # The resolved tool surface (header above), so supervision can tell a monitor
+  # mate from an incident worker by reading the record alone. The default
+  # profile records incident= explicitly rather than staying absent: a reader
+  # that sees no line cannot tell an older record from a monitor one.
+  echo "tool_profile=$TOOL_PROFILE"
   # The worker account pin, only when this home declares one, so an unpinned
   # task record stays byte-identical.
   [ -z "$WORKER_ACCOUNT" ] || echo "account=$WORKER_ACCOUNT_DECLARED"
@@ -5049,6 +5142,17 @@ sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}"
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
+# --tool-profile monitor: the one launch-time tool exclusion this profile owns.
+# The list names the five MCP server prefixes by concrete tool-name pattern, so a
+# skill or extension tool outside them still loads, and the Pi-family extension
+# files this launch names with -e stay untouched (--exclude-tools filters tool
+# names, never extensions). Quoted, because the pane shell would otherwise
+# glob-expand the wildcards. Empty for the default incident profile, which leaves
+# every launch byte-identical to before this axis existed.
+TOOLPROFILEFLAG=
+if [ "$TOOL_PROFILE" = monitor ]; then
+  TOOLPROFILEFLAG=" --exclude-tools $(shell_quote 'github-*,context7-*,firecrawl-*,searxng-*,ra-h-os-*')"
+fi
 # A pinned Pi launch confines Pi's model lookup to the declared provider.
 [ -z "$WORKER_ACCOUNT_PROVIDER" ] || MODELFLAG="--provider $(shell_quote "$WORKER_ACCOUNT_PROVIDER") $MODELFLAG"
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
@@ -5062,6 +5166,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RESUME_ARGS=$(relaunch_resume_args "$HARNESS" "$BACKEND" "$T") || RESUME_ARGS=
 fi
 LAUNCH=${LAUNCH//__PIRESUME__/$RESUME_ARGS}
+LAUNCH=${LAUNCH//__TOOLPROFILEFLAG__/$TOOLPROFILEFLAG}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
 if [ "$KEEP_AI_TRAILERS" = 1 ]; then
   LAUNCH=${LAUNCH//__CLAUDEATTRIBUTION__/}
@@ -5513,4 +5618,4 @@ SPAWN_ACCOUNT=
 [ -z "$WORKER_ACCOUNT_PROVIDER" ] || SPAWN_ACCOUNT="$SPAWN_ACCOUNT account_provider=$WORKER_ACCOUNT_PROVIDER"
 # Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || [ "$RELAUNCH" -eq 1 ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$ID" "$KIND" "${PROJ_ABS##*/}" "$HARNESS" "$MODEL" || true
-echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT$SPAWN_ACCOUNT"
+echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT$SPAWN_ACCOUNT tool_profile=$TOOL_PROFILE"
