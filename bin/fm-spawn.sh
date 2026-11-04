@@ -87,17 +87,37 @@
 #   build agent's variant, keyed to the resolved model, inside the
 #   OPENCODE_CONFIG_CONTENT JSON its launch already carries (config schema
 #   verified on opencode 1.18.32); without a model the axis is recorded but omitted.
-#   --tool-profile <monitor|incident> is the tool surface this worker runs with.
-#   incident (the default, and every existing caller) loads the full tool set,
-#   including every configured MCP server, and emits no exclusion flag. monitor
-#   drops the MCP tool schemas a supervising mate never calls by passing the
-#   harness's own exclusion flag at launch: on pi and pi-signed that is
-#   --exclude-tools with the concrete server prefixes github-*, context7-*,
-#   firecrawl-*, searxng-*, and ra-h-os-*. A launch-time exclusion is deliberate:
-#   --no-mcp does not stop the project MCP extension and --no-extensions also
-#   drops the watcher and turn-end guard, so neither expresses this profile.
+#   --tool-profile <monitor|incident> is the launch surface this worker runs with.
+#   incident is the default and every existing caller gets it unchanged: the full
+#   tool set, every configured MCP server, every discovered skill, AGENTS.md, and
+#   no extra launch flag, byte for byte as before this axis existed. monitor is the
+#   lean surface for a persistent monitoring lane, and that one flag carries all
+#   four reductions on the Pi family:
+#     - The MCP tool schemas a supervising mate never calls, dropped through the
+#       harness's own exclusion flag: --exclude-tools with the concrete server
+#       prefixes github-*, context7-*, firecrawl-*, searxng-*, and ra-h-os-*. A
+#       launch-time exclusion is deliberate: --no-mcp does not stop the project MCP
+#       extension and --no-extensions also drops the watcher and turn-end guard, so
+#       neither expresses this profile.
+#     - -nc / --no-context-files, which stops AGENTS.md and CLAUDE.md discovery and
+#       so keeps the inherited supervisor contract out of the prompt.
+#     - --append-system-prompt with docs/monitor-lane-contract.md, the compact
+#       tracked contract that replaces it. The launch REFUSES when that file is
+#       absent or unreadable rather than launching without the boundaries; the
+#       contract's size ceiling is asserted in tests/fm-spawn-tool-profile.test.sh.
+#     - -ns / --no-skills plus an explicit --skill path per skill this lane needs:
+#       the no-mistakes pipeline skill when one can be resolved, and this code
+#       root's stow skill. The index therefore carries two entries instead of about
+#       thirty. A skill outside that set still loads by path, and
+#       docs/monitor-lane-contract.md names the pattern. Flag spellings verified
+#       against pi 1.1.0 and 1.4.0 (docs/cli.md) before this string was written.
 #   Every other harness, and a raw launch command, REFUSES monitor by name rather
-#   than launching with an unexpressed profile. The resolved profile is recorded
+#   than launching with an unexpressed profile. A --secondmate spawn ACCEPTS
+#   monitor: the lean contract carries the boundaries that bind a mate, and the mate
+#   keeps its own charter, session-start digest, and parent-channel contract.
+#   A missing pipeline skill is a refusal only where the mode actually needs it,
+#   which is --mode no-mistakes. The remote secondmate path still refuses monitor,
+#   because no launch flag crosses that transport. The resolved profile is recorded
 #   as tool_profile= in the task record, so supervision can tell which profile a
 #   worker runs; a relaunch reuses it and refuses the flag (AGENTS.md section 7).
 #   --backend <name> is the explicit runtime session-provider backend for this
@@ -362,9 +382,11 @@
 #     __PIAPPROVE__ optional --approve on a seeded Pi/pi-signed secondmate when
 #                  that executable advertises the flag (empty otherwise; session
 #                  trust for the launch cwd only, never a trust.json rewrite)
-#     __TOOLPROFILEFLAG__ optional launch-time tool exclusion for --tool-profile
-#                  monitor on the Pi family (its own leading space; empty for
-#                  every other harness and for the default incident profile)
+#     __TOOLPROFILEFLAG__ the whole lean launch surface for --tool-profile monitor
+#                  on the Pi family: the MCP exclusion, -nc, the compact lane
+#                  contract, and the narrowed skills index (its own leading space;
+#                  empty for every other harness and for the default incident
+#                  profile)
 #     __PIRESUME__ optional relaunch-only `--session <reference>` that keeps a
 #                  Pi replacement on the session the endpoint's runtime already
 #                  reports (relaunch_resume_args below owns it; it supplies its
@@ -2489,6 +2511,34 @@ if [ "$TOOL_PROFILE" = monitor ]; then
     exit 1
     ;;
   esac
+  # The rest of the lean surface (header above) resolves here too, before any
+  # worktree, endpoint, or record exists, so a missing piece is a refusal that
+  # names it instead of a worker launched with half the profile. The contract is
+  # always required, because this profile stops loading the supervisor contract
+  # and that file is what carries the boundaries in its place.
+  MONITOR_CONTRACT="$FM_ROOT/docs/monitor-lane-contract.md"
+  if [ ! -f "$MONITOR_CONTRACT" ] || [ ! -r "$MONITOR_CONTRACT" ]; then
+    echo "error: --tool-profile monitor needs the compact lane contract at $MONITOR_CONTRACT, which is absent or unreadable; without it this worker would have neither the supervisor contract nor its replacement" >&2
+    exit 1
+  fi
+  MONITOR_SKILLS=()
+  MONITOR_NO_MISTAKES_SKILL=
+  for monitor_candidate in "$FM_ROOT/.agents/skills/no-mistakes" "${HOME:-/nonexistent-home}/.agents/skills/no-mistakes"; do
+    [ -f "$monitor_candidate/SKILL.md" ] || continue
+    MONITOR_NO_MISTAKES_SKILL=$monitor_candidate
+    MONITOR_SKILLS+=("$monitor_candidate")
+    break
+  done
+  if [ -f "$FM_ROOT/.agents/skills/stow/SKILL.md" ]; then
+    MONITOR_SKILLS+=("$FM_ROOT/.agents/skills/stow")
+  fi
+  # A narrowed index that dropped the pipeline skill would leave a no-mistakes
+  # worker unable to drive its own validation, so that combination refuses. Every
+  # other mode, and a secondmate lane, keeps whatever skills resolve.
+  if [ -z "$MONITOR_NO_MISTAKES_SKILL" ] && [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+    echo "error: --tool-profile monitor with --mode no-mistakes needs the no-mistakes skill, which is absent from $FM_ROOT/.agents/skills/no-mistakes and ${HOME:-<unset home>}/.agents/skills/no-mistakes; install it there, or dispatch this task on the default incident profile" >&2
+    exit 1
+  fi
 fi
 RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
@@ -5142,16 +5192,25 @@ sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}"
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-# --tool-profile monitor: the one launch-time tool exclusion this profile owns.
-# The list names the five MCP server prefixes by concrete tool-name pattern, so a
-# skill or extension tool outside them still loads, and the Pi-family extension
-# files this launch names with -e stay untouched (--exclude-tools filters tool
-# names, never extensions). Quoted, because the pane shell would otherwise
-# glob-expand the wildcards. Empty for the default incident profile, which leaves
-# every launch byte-identical to before this axis existed.
+# --tool-profile monitor: the lean launch surface this profile owns (header
+# above). The exclusion names the five MCP server prefixes by concrete tool-name
+# pattern, so a skill or extension tool outside them still loads, and the
+# Pi-family extension files this launch names with -e stay untouched
+# (--exclude-tools filters tool names, never extensions). Quoted, because the pane
+# shell would otherwise glob-expand the wildcards. -nc drops AGENTS.md and
+# CLAUDE.md discovery, --append-system-prompt restores the compact lane contract
+# resolved above, and -ns with one --skill per needed skill replaces the whole
+# discovered index. Empty for the default incident profile, which leaves every
+# launch byte-identical to before this axis existed.
 TOOLPROFILEFLAG=
 if [ "$TOOL_PROFILE" = monitor ]; then
   TOOLPROFILEFLAG=" --exclude-tools $(shell_quote 'github-*,context7-*,firecrawl-*,searxng-*,ra-h-os-*')"
+  TOOLPROFILEFLAG="$TOOLPROFILEFLAG -nc --append-system-prompt $(shell_quote "$MONITOR_CONTRACT")"
+  MONITOR_SKILLFLAGS=
+  for monitor_skill in ${MONITOR_SKILLS[@]+"${MONITOR_SKILLS[@]}"}; do
+    MONITOR_SKILLFLAGS="$MONITOR_SKILLFLAGS --skill $(shell_quote "$monitor_skill")"
+  done
+  TOOLPROFILEFLAG="$TOOLPROFILEFLAG -ns$MONITOR_SKILLFLAGS"
 fi
 # A pinned Pi launch confines Pi's model lookup to the declared provider.
 [ -z "$WORKER_ACCOUNT_PROVIDER" ] || MODELFLAG="--provider $(shell_quote "$WORKER_ACCOUNT_PROVIDER") $MODELFLAG"

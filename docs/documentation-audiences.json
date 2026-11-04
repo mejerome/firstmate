@@ -389,6 +389,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/monitor-lane-contract.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "docs/orca-backend.md",
       "audience": "operator-current"
     },
