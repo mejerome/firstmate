@@ -361,7 +361,7 @@ case_secondmate_accepts_the_monitor_profile() {
 }
 
 case_default_and_incident_launch_lines_match() {
-  local rec out1 out2 rc1 rc2 launch1 launch2 meta1 meta2
+  local rec out1 out2 rc1 rc2 launch1 launch2 meta1
   # One fixture, two spawns: one without the flag (default), one explicit.
   # Both must produce byte-identical launch lines because incident is the
   # default profile; neither may carry any monitor-specific flag.
