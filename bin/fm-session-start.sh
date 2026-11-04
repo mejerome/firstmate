@@ -56,7 +56,17 @@
 #                       run serially, so with a wedged backend the stage's
 #                       ceiling is tasks x the per-read bound
 #                       (FM_SESSION_START_ENDPOINT_TIMEOUT, default 10s) and
-#                       can itself reach the digest's runtime bound.
+#                       can itself reach the digest's runtime bound. In a
+#                       SECONDMATE home (marker: .fm-secondmate-home) this
+#                       section and the context digest print a bounded
+#                       CHECKPOINT instead of the bulk: the lock line, the wake
+#                       queue state, the away posture, any public commitment,
+#                       and the exact commands that read the task records and
+#                       context files on demand. A mate's digest is a worker's
+#                       own context and it pays for it on every request, which
+#                       is the same trade the curated-memory budget governs for
+#                       the primary. FM_SESSION_START_FULL_DIGEST=1 is the
+#                       one-shot escape that prints the full digest anyway.
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
@@ -384,6 +394,24 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
 # shellcheck source=bin/fm-hold-reason-lib.sh
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
+# shellcheck source=bin/fm-primary-scope-lib.sh
+. "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+
+# A secondmate home is a firstmate instance, but its session-start digest is a
+# WORKER's own context, not the captain's fleet view: everything printed here is
+# carried into every request that session makes, and a resident mate pays it on
+# every turn. So in a secondmate home the bulky sections - the whole task-record
+# listing and the curated context files - are replaced by a bounded checkpoint:
+# the lock line, the wake queue state that is this turn's work, and the exact
+# commands that read the rest on demand. This is the same trade the curated
+# memory budget governs for the primary (config/startup-memory-budget), applied
+# to a mate's own startup. bin/fm-primary-scope-lib.sh owns the marker test, and
+# FM_SESSION_START_FULL_DIGEST=1 is the one-shot escape that prints the full
+# digest anyway.
+SECONDMATE_CHECKPOINT=0
+if fm_root_is_secondmate_home "$FM_HOME" && [ "${FM_SESSION_START_FULL_DIGEST:-0}" != 1 ]; then
+  SECONDMATE_CHECKPOINT=1
+fi
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -1317,7 +1345,25 @@ stage read-once
 # there; the checkpoint pointer block replaces it.
 if [ "$REEMIT" -eq 0 ]; then
   section "READ-ONCE CONTRACT"
-  cat <<'EOF'
+  if [ "$SECONDMATE_CHECKPOINT" -eq 1 ]; then
+    cat <<'EOF'
+In a secondmate home this digest prints a bounded checkpoint, not the full fleet
+digest: the task-record listing, the curated memory files, and the other context
+files stay on disk, and the checkpoint section prints the exact command for each.
+Do NOT bulk-read state/*.meta, state/*.status, data/backlog.md, or the context
+files after reading this digest.
+
+Go to a source directly only when:
+  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+  - its contents looked unparseable or corrupt,
+  - this turn needs that specific task record, task body, or memory topic,
+  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
+    turn needs their verdict (bin/fm-startup-network.sh report),
+  - or a STARTUP TRUNCATED banner named the stage that would have printed it,
+    in which case that stage's sources were never emitted and must be reconciled.
+EOF
+  else
+    cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta,
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, and data/secondmates.md.
@@ -1344,6 +1390,7 @@ Go to a source directly only when:
   - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
     which case that stage's sources were never emitted and must be reconciled.
 EOF
+  fi
 fi
 
 # --- 6. fleet-state digest ---------------------------------------------
@@ -1352,107 +1399,162 @@ fi
 stage fleet-state
 reemit_optional_begin 'fleet state'
 section "FLEET STATE"
-print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
+# The bulk of this section - the backlog listing, every task record, and every
+# status tail - is what a secondmate home replaces with a checkpoint below. It
+# stays one renderer here so the full and checkpoint shapes cannot drift.
+print_fleet_state_full() {
+  print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
-subsection "Work under way (state/*.meta)"
-META_FOUND=0
-for meta in "$STATE"/*.meta; do
-  [ -f "$meta" ] || continue
-  META_FOUND=1
-  id=$(basename "$meta" .meta)
-  printf '\n--- %s ---\n' "$id"
-  cat "$meta"
+  subsection "Work under way (state/*.meta)"
+  META_FOUND=0
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    META_FOUND=1
+    id=$(basename "$meta" .meta)
+    printf '\n--- %s ---\n' "$id"
+    cat "$meta"
 
-  window=$(fm_meta_get "$meta" window)
-  target=$(fm_backend_target_of_meta "$meta")
-  if [ -n "$window" ]; then
-    backend=$(fm_backend_of_meta "$meta")
-    endpoint_rc=0
-    fm_session_start_endpoint_read "$backend" "${target:-$window}" "fm-$id" || endpoint_rc=$?
-    # Only the timeout owner's own statuses mean the read itself failed: 124 is
-    # the bound firing and >=128 is a signal death. Every other nonzero status
-    # is the probe's own verdict that the endpoint is gone.
-    if [ "$endpoint_rc" -eq 0 ]; then
-      printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"
-    elif [ "$endpoint_rc" -eq 124 ] || [ "$endpoint_rc" -ge 128 ]; then
-      printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)\n' \
-        "$backend" "$window" "$ENDPOINT_TIMEOUT"
+    window=$(fm_meta_get "$meta" window)
+    target=$(fm_backend_target_of_meta "$meta")
+    if [ -n "$window" ]; then
+      backend=$(fm_backend_of_meta "$meta")
+      endpoint_rc=0
+      fm_session_start_endpoint_read "$backend" "${target:-$window}" "fm-$id" || endpoint_rc=$?
+      # Only the timeout owner's own statuses mean the read itself failed: 124 is
+      # the bound firing and >=128 is a signal death. Every other nonzero status
+      # is the probe's own verdict that the endpoint is gone.
+      if [ "$endpoint_rc" -eq 0 ]; then
+        printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"
+      elif [ "$endpoint_rc" -eq 124 ] || [ "$endpoint_rc" -ge 128 ]; then
+        printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)\n' \
+          "$backend" "$window" "$ENDPOINT_TIMEOUT"
+      else
+        printf 'endpoint: dead (backend=%s window=%s)\n' "$backend" "$window"
+      fi
     else
-      printf 'endpoint: dead (backend=%s window=%s)\n' "$backend" "$window"
+      printf 'endpoint: unknown (no window recorded)\n'
     fi
-  else
-    printf 'endpoint: unknown (no window recorded)\n'
-  fi
 
-  status="$STATE/$id.status"
-  if [ -f "$status" ]; then
+    status="$STATE/$id.status"
+    if [ -f "$status" ]; then
+      print_status_tail "$status"
+    else
+      printf 'status tail: (no status file yet: %s)\n' "$status"
+    fi
+  done
+  [ "$META_FOUND" -eq 1 ] || printf '(none)\n'
+
+  subsection "Orphan status logs (state/*.status without matching .meta)"
+  ORPHAN_STATUS_FOUND=0
+  for status in "$STATE"/*.status; do
+    [ -f "$status" ] || continue
+    id=$(basename "$status" .status)
+    [ -f "$STATE/$id.meta" ] && continue
+    ORPHAN_STATUS_FOUND=1
+    printf '\n--- %s ---\n' "$id"
     print_status_tail "$status"
-  else
-    printf 'status tail: (no status file yet: %s)\n' "$status"
-  fi
-done
-[ "$META_FOUND" -eq 1 ] || printf '(none)\n'
+  done
+  [ "$ORPHAN_STATUS_FOUND" -eq 1 ] || printf '(none)\n'
 
-subsection "Orphan status logs (state/*.status without matching .meta)"
-ORPHAN_STATUS_FOUND=0
-for status in "$STATE"/*.status; do
-  [ -f "$status" ] || continue
-  id=$(basename "$status" .status)
-  [ -f "$STATE/$id.meta" ] && continue
-  ORPHAN_STATUS_FOUND=1
-  printf '\n--- %s ---\n' "$id"
-  print_status_tail "$status"
-done
-[ "$ORPHAN_STATUS_FOUND" -eq 1 ] || printf '(none)\n'
+  print_afk_subsection
+  print_public_commitments
+}
 
-subsection "AFK"
 # The away posture is the record (bin/fm-afk-contract.sh); the legacy flag
 # still marks a running daemon on the harnesses that launch one.
 # A quiet record (bin/fm-afk-contract.sh mode) is a present captain: it holds
 # nothing for a return.
-if [ -f "$STATE/.afk-contract" ]; then
-  if [ "$("$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = quiet ]; then
-    printf 'present - quiet mode recorded at %s (the captain is present and nothing is held for a return: requested actions proceed under ordinary attended authority; only an explicit /quiet off exits it)' \
-      "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
-  else
-    printf 'present - away posture recorded at %s (hold-for-return only; bin/fm-afk-contract.sh readback for the mandate)' \
-      "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
-  fi
-  if [ -e "$STATE/.afk" ]; then
-    if [ "$AFK_MODE" = quiet ]; then
-      printf '; the quiet daemon owns the watcher.\n'
+print_afk_subsection() {
+  subsection "AFK"
+  if [ -f "$STATE/.afk-contract" ]; then
+    if [ "$("$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = quiet ]; then
+      printf 'present - quiet mode recorded at %s (the captain is present and nothing is held for a return: requested actions proceed under ordinary attended authority; only an explicit /quiet off exits it)' \
+        "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
     else
-      printf '; the away daemon owns the watcher.\n'
+      printf 'present - away posture recorded at %s (hold-for-return only; bin/fm-afk-contract.sh readback for the mandate)' \
+        "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
+    fi
+    if [ -e "$STATE/.afk" ]; then
+      if [ "$AFK_MODE" = quiet ]; then
+        printf '; the quiet daemon owns the watcher.\n'
+      else
+        printf '; the away daemon owns the watcher.\n'
+      fi
+    else
+      printf '; no daemon runs, the ordinary supervision session continues.\n'
+    fi
+  elif [ -e "$STATE/.afk" ]; then
+    if [ "$AFK_MODE" = quiet ]; then
+      printf 'present - quiet-mode supervision is active; the daemon owns the watcher, only an explicit /quiet off exits it (legacy flag with no posture record).\n'
+    else
+      printf 'present - away-mode supervision is active; the daemon owns the watcher (legacy flag with no posture record).\n'
     fi
   else
-    printf '; no daemon runs, the ordinary supervision session continues.\n'
+    printf 'absent\n'
   fi
-elif [ -e "$STATE/.afk" ]; then
-  if [ "$AFK_MODE" = quiet ]; then
-    printf 'present - quiet-mode supervision is active; the daemon owns the watcher, only an explicit /quiet off exits it (legacy flag with no posture record).\n'
-  else
-    printf 'present - away-mode supervision is active; the daemon owns the watcher (legacy flag with no posture record).\n'
-  fi
-else
-  printf 'absent\n'
-fi
+}
 
 # Public commitments made through the myfirstmate relay. A promise to reply in a
 # public thread must survive compaction and restart, so it is surfaced from disk
 # here rather than from conversation memory. fm-public-followup-lib.sh owns both
 # gates: a home that never opted into the relay runs one [ -f ] test, prints no
 # subsection, and never reaches fm-public-followup.sh.
-if fm_pf_relay_active "$FM_HOME" \
-  && { fm_pf_has_registrations "$STATE" || fm_pf_has_events "$STATE"; }; then
-  PUBLIC_FOLLOWUP=$("$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
-  if [ -n "$PUBLIC_FOLLOWUP" ]; then
-    subsection "Public commitments"
-    printf '%s\n' "$PUBLIC_FOLLOWUP"
-    printf '\nEach line is a public loop this home still holds: a reply still owed, or an open loop with nothing owed.\n'
-    printf 'Reconcile terminal results with %s/bin/fm-public-followup.sh consume, then deliver a ready one with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh deliver <id>. Hand a delivered loop on with rechain, or close it with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
+print_public_commitments() {
+  if fm_pf_relay_active "$FM_HOME" \
+    && { fm_pf_has_registrations "$STATE" || fm_pf_has_events "$STATE"; }; then
+    PUBLIC_FOLLOWUP=$("$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
+    if [ -n "$PUBLIC_FOLLOWUP" ]; then
+      subsection "Public commitments"
+      printf '%s\n' "$PUBLIC_FOLLOWUP"
+      printf '\nEach line is a public loop this home still holds: a reply still owed, or an open loop with nothing owed.\n'
+      printf 'Reconcile terminal results with %s/bin/fm-public-followup.sh consume, then deliver a ready one with\n' "$FM_ROOT"
+      printf '%s/bin/fm-public-followup.sh deliver <id>. Hand a delivered loop on with rechain, or close it with\n' "$FM_ROOT"
+      printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
+    fi
   fi
+}
+
+# Secondmate checkpoint (see the SECONDMATE_CHECKPOINT note near the top of this
+# file): the stateful facts a mate must never lose - the away posture and any
+# public commitment it still holds - plus what its own home contains and the
+# exact commands that read everything the full listing would have printed. The
+# output is a fixed, small number of lines by construction, which is the bound.
+print_secondmate_checkpoint_fleet() {
+  local count id
+  print_afk_subsection
+  print_public_commitments
+  subsection "Secondmate checkpoint"
+  printf 'This is a secondmate home, so this digest prints a bounded checkpoint instead\n'
+  printf 'of the full fleet digest it prints for the captain primary: everything printed\n'
+  printf 'here rides in every request this session makes. The listing stays on disk and\n'
+  printf 'is read on demand with the commands below.\n'
+  count=0
+  for id in "$STATE"/*.meta; do
+    [ -f "$id" ] || continue
+    count=$((count + 1))
+  done
+  printf '\nThis home records %s task(s) under %s.\n' "$count" "$(memory_shell_quote "$STATE")"
+  printf '\nRead exactly what this turn needs (replace <id>):\n'
+  printf '  %s <id>\n' "$(memory_shell_quote "$FM_ROOT/bin/fm-crew-state.sh")"
+  printf '      one task current state, reconciled from its record and status log\n'
+  printf '  cat %s\n' "$(memory_shell_quote "$STATE/<id>.meta")"
+  printf '      one task full record (window, worktree, harness, delivery posture)\n'
+  printf '  tail -n 40 %s\n' "$(memory_shell_quote "$STATE/<id>.status")"
+  printf '      one task recent wake events\n'
+  printf '  %s show <id> --full\n' "$(memory_shell_quote "$FM_ROOT/bin/fm-tasks-axi.sh")"
+  printf '      one task full body from the backlog\n'
+  printf '  sed -n %s %s\n' "'1,160p'" "$(memory_shell_quote "$DATA/backlog.md")"
+  printf '      the queued work this home owns\n'
+  printf '  grep -n <topic> %s\n' "$(memory_shell_quote "$DATA/learnings.md")"
+  printf '      one topic in this home local memory\n'
+  printf '\nPrint this digest in full when a turn needs the whole picture:\n'
+  printf '  FM_SESSION_START_FULL_DIGEST=1 %s\n' "$(memory_shell_quote "$FM_ROOT/bin/fm-session-start.sh")"
+}
+
+if [ "$SECONDMATE_CHECKPOINT" -eq 1 ]; then
+  print_secondmate_checkpoint_fleet
+else
+  print_fleet_state_full
 fi
 reemit_optional_end
 
@@ -1483,11 +1585,40 @@ fi
 stage context
 reemit_optional_begin 'context files'
 section "CONTEXT"
-print_file_or_absent "$DATA/projects.md" "data/projects.md"
-print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
-print_memory_file_or_absent "$DATA/captain.md" "data/captain.md"
-print_memory_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
-print_memory_file_or_absent "$DATA/learnings.md" "data/learnings.md"
+# print_context_file_status <path> <label>: the presence fact ABSENT semantics
+# still need - absent, present-but-empty, or present with its size - and no body.
+# A secondmate home reads one of these files on demand instead of carrying all
+# five in every request (see the SECONDMATE_CHECKPOINT note near the top).
+print_context_file_status() {
+  local path=$1 label=$2 size
+  subsection "$label"
+  if [ ! -f "$path" ]; then
+    printf 'ABSENT\n'
+    return 0
+  fi
+  if [ ! -s "$path" ]; then
+    printf '(present, empty)\n'
+    return 0
+  fi
+  size=$(LC_ALL=C wc -c <"$path" 2>/dev/null | tr -d '[:space:]')
+  case "$size" in ''|*[!0-9]*) size=unknown ;; esac
+  printf 'present, %s bytes - not printed in a secondmate home; read it with:\n' "$size"
+  printf '  grep -n <topic> %s\n' "$(memory_shell_quote "$path")"
+  printf '  sed -n %s %s\n' "'1,120p'" "$(memory_shell_quote "$path")"
+}
+if [ "$SECONDMATE_CHECKPOINT" -eq 1 ]; then
+  print_context_file_status "$DATA/projects.md" "data/projects.md"
+  print_context_file_status "$DATA/secondmates.md" "data/secondmates.md"
+  print_context_file_status "$DATA/captain.md" "data/captain.md"
+  print_context_file_status "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
+  print_context_file_status "$DATA/learnings.md" "data/learnings.md"
+else
+  print_file_or_absent "$DATA/projects.md" "data/projects.md"
+  print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
+  print_memory_file_or_absent "$DATA/captain.md" "data/captain.md"
+  print_memory_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
+  print_memory_file_or_absent "$DATA/learnings.md" "data/learnings.md"
+fi
 reemit_optional_end
 
 # --- 9. closing reminder -----------------------------------------------
