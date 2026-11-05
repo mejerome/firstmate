@@ -482,8 +482,9 @@ jobs:
     # job held by `needs` is resolved by the server, which evaluates this if,
     # finds another forge, and records the job as skipped. always() keeps the
     # macOS job running on GitHub when the job it needs fails, so nothing about
-    # its GitHub behaviour loosens.
-    needs: [invariants]
+    # its GitHub behaviour loosens. The needed job is the fast coverage guard so
+    # this decision lands early in the run, not at the end of it.
+    needs: [test-coverage]
     if: ${{ always() && github.server_url == 'https://github.com' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
