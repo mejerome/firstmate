@@ -268,7 +268,7 @@ test_run_clear_and_compact_reemit() {
     expect_code 0 "$status" "run wrapper $source"
     assert_contains "$out" "$REEMIT_BANNER$root" "$source did not re-emit the digest"
     assert_contains "$out" "are NOT repeated" "$source did not report the skipped startup sweeps"
-    assert_contains "$out" "Queued wakes ARE still drained" "$source did not preserve the wake-queue drain"
+    assert_contains "$out" "queued wakes ARE still drained" "$source did not preserve the wake-queue drain"
     assert_not_contains "$out" "FIRSTMATE_OP" "a $source open also emitted the nudge instruction"
   done
   pass "run wrapper: clear and compact re-emit the digest without repeating startup sweeps"
@@ -1143,6 +1143,10 @@ test_run_creates_missing_state_on_a_fresh_primary() {
 
 test_run_reports_a_state_dir_it_cannot_create() {
   local root="$TMP_ROOT/run-fresh-readonly" out err_file="$TMP_ROOT/run-fresh-readonly.err" status=0
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: run-reports-a-state-dir-it-cannot-create needs a job user that mode bits deny\n'
+    return 0
+  fi
   make_run_primary "$root"
   rmdir "$root/state"
   chmod 0500 "$root"
@@ -1160,6 +1164,10 @@ test_run_reports_a_state_dir_it_cannot_create() {
 
 test_run_reports_a_failed_session_start_as_digest_text() {
   local root="$TMP_ROOT/run-unwritable" out status=0
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: run-reports-a-failed-session-start-as-digest-text needs a job user that mode bits deny\n'
+    return 0
+  fi
   make_run_primary "$root"
   chmod 0500 "$root/state"
   out=$(run_hook "$root" --source startup </dev/null) || status=$?
