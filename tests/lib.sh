@@ -234,6 +234,10 @@ fm_test_pid_under_root() {  # <pid> <root>
 }
 
 fm_test_pids_under_root() {  # <root>
+  # A survivor is a process whose command line, cwd, or environment contains
+  # the root and whose pid is not the checker itself. Both scan paths exclude
+  # $$, $PPID, and pid 1, so a checker whose own command line names the root
+  # cannot inflate or deflate the count.
   local root=$1 pid
   if [ -d /proc/1 ]; then
     for pid in /proc/[0-9]*; do
@@ -246,6 +250,9 @@ fm_test_pids_under_root() {  # <root>
     return 0
   fi
   ps -eo pid=,args= 2>/dev/null | while read -r pid args; do
+    [ "$pid" != "$$" ] || continue
+    [ "$pid" != "${PPID:-0}" ] || continue
+    [ "$pid" != 1 ] || continue
     case "$args" in *"$root"*) printf '%s\n' "$pid" ;; esac
   done
 }

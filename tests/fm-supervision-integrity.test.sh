@@ -44,6 +44,9 @@ cleanup_integrity_processes() {
 trap cleanup_integrity_processes EXIT INT TERM
 
 assert_no_temp_root_processes() {
+  # Survivor means a process whose command line, cwd, or environment contains
+  # this suite's temp root and whose pid is not this checker (fm_test_pids_under_root
+  # excludes $$, $PPID, and pid 1 on both its /proc and ps paths).
   local leaked
   leaked=$(fm_test_pids_under_root "$TMP_ROOT" | tr '\n' ' ')
   [ -z "$leaked" ] || fail "the suite leaked processes under $TMP_ROOT: $leaked"
