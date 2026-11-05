@@ -342,7 +342,8 @@ SH
   grep -q 'first=0' "$wake_log" || fail "the first held-landing call did not park"
   grep -q 'second=0' "$wake_log" || fail "a parked landing alarm escalated again"
   grep -q "$sha" "$wake_log" || fail "the park reason did not name the pushed commit"
-  [ -f "$home/state"/.landing-held-* ] || fail "the park left no durable marker"
+  landing_held_files=("$home/state"/.landing-held-*)
+  [ -f "${landing_held_files[0]}" ] || fail "the park left no durable marker"
   pass "an escalating stale alarm on a pushed-but-unlanded lane with a held landing decision parks once"
 }
 
