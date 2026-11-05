@@ -1022,6 +1022,10 @@ EOF
 
 test_lock_write_failure_read_only_path() {
   local rec root home fakebin out status
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: lock-write-failure-read-only-path needs a job user that mode bits deny\n'
+    return 0
+  fi
   rec=$(new_world lock-write-failure)
   IFS='|' read -r root home fakebin <<EOF
 $rec

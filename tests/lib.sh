@@ -291,6 +291,69 @@ if [ "${FM_TEST_SKIP_ORPHAN_REAP:-0}" != 1 ]; then
   fm_test_reap_orphans
 fi
 
+# --- runner capability probes ----------------------------------------------
+#
+# A job container can lack a capability a fixture assumes: a root job user is
+# bound by no mode bits, and an init that never reaps orphans leaves a killed
+# process as a zombie that `kill -0` still answers for. Both describe the runner,
+# not the code under test, so a fixture asks here instead of assuming. When the
+# capability is absent the fixture prints one `skip: <reason>:` line naming the
+# precondition it could not create; it never reports "ok" for a check whose
+# precondition was missing, and it never deletes or relaxes the assertion itself.
+
+# fm_test_permission_enforced: 0 when mode bits actually deny this user.
+# A root job user reads a mode-000 file, so every "unreadable record" fixture is
+# meaningless there; the caller reports that as skip: root_job.
+fm_test_permission_enforced() {
+  local probe
+  probe=$(mktemp "${TMPDIR:-/tmp}/.fm-test-mode.XXXXXX") || return 1
+  if ! chmod 000 "$probe" 2>/dev/null; then
+    rm -f "$probe"
+    return 1
+  fi
+  if cat "$probe" >/dev/null 2>&1; then
+    chmod 600 "$probe" 2>/dev/null || true
+    rm -f "$probe"
+    return 1
+  fi
+  chmod 600 "$probe" 2>/dev/null || true
+  rm -f "$probe"
+  return 0
+}
+
+# fm_test_process_running: 0 only while <pid> is alive and has not exited.
+# A zombie has already exited and only waits for an init that reaps it, so it is
+# not a running process. /proc is absent on macOS, where kill -0 is the answer.
+fm_test_process_running() {  # <pid>
+  local pid=$1 state
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  state=$(sed -n 's/^[0-9][0-9]* (.*) \([A-Za-z]\).*$/\1/p' "/proc/$pid/stat" 2>/dev/null) || state=
+  [ "$state" != Z ]
+}
+
+# fm_test_init_reaps_orphans: 0 when this container's init removes a killed
+# orphan rather than leaving it a zombie. The strict forms of the no-survivor
+# assertions stay enabled wherever this says yes, which is every GitHub runner.
+fm_test_init_reaps_orphans() {  # <scratch-dir>
+  local dir=$1 pidfile pid i=0
+  pidfile="$dir/.fm-test-reap"
+  rm -f "$pidfile"
+  # The launching shell exits at once, so its background child reparents to init
+  # before it exits. A reaping init removes it; an init such as act's `sleep`
+  # leaves a zombie that kill -0 keeps answering for.
+  sh -c 'sleep 0.25 & printf "%s" "$!" > "$1"' _ "$pidfile" >/dev/null 2>&1
+  pid=$(cat "$pidfile" 2>/dev/null) || pid=
+  rm -f "$pidfile"
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  while [ "$i" -lt 300 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.01
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # --- live-capability gate ---------------------------------------------------
 #
 # fm_live_gate <policy> <vars> [tool ...]

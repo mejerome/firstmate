@@ -1105,34 +1105,38 @@ wait "$config_second" || fail "bootstrap inheritance transaction failed after wa
 pass "config push and bootstrap serialize remote inheritance convergence"
 
 printf 'codex\n' > "$PARENT/config/crew-harness"
-# A failed reread nudge now means the durable remote inbox RECORD could not be
-# written (a swallowed doorbell alone no longer fails a recorded steer), so
-# the failure is induced by making the remote steering inbox unwritable.
-chmod 555 "$PARENT_ROUTE_INBOX"
-if remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-fail.out" 2>&1; then
+if fm_test_permission_enforced; then
+  # A failed reread nudge now means the durable remote inbox RECORD could not be
+  # written (a swallowed doorbell alone no longer fails a recorded steer), so
+  # the failure is induced by making the remote steering inbox unwritable.
+  chmod 555 "$PARENT_ROUTE_INBOX"
+  if remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-fail.out" 2>&1; then
+    chmod 755 "$PARENT_ROUTE_INBOX"
+    fail "remote config push claimed success after its reread record could not be written"
+  fi
+  if [ ! -f "$NUDGE_MARKER" ]; then
+    chmod 755 "$PARENT_ROUTE_INBOX"
+    printf 'config push failure output:\n%s\n' "$(cat "$TMP_ROOT/config-push-fail.out")" >&2
+    fail "failed remote config reread did not retain a retry marker"
+  fi
+  assert_grep 'remote=1' "$NUDGE_MARKER" "remote config reread marker lost its placement"
   chmod 755 "$PARENT_ROUTE_INBOX"
-  fail "remote config push claimed success after its reread record could not be written"
+  remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-retry.out" \
+    || fail "unchanged remote config push did not retry its pending reread"
+  assert_absent "$NUDGE_MARKER" "successful remote config reread left its retry marker"
+  assert_grep 'config-reread: sent' "$TMP_ROOT/config-push-retry.out" "remote config reread retry was not reported"
+  CONFIG_CORR=$(newest_remote_inbox_corr)
+  [ -n "$CONFIG_CORR" ] || fail "remote config reread did not carry a correlation token"
+  printf 'done [corr=%s]: inherited config re-read\n' "$CONFIG_CORR" >> "$REMOTE_HOME/state/parent-replies.status"
+  await_reply_result "$PARENT/state/procevent-inbox/$SID.3.result" \
+    || fail "remote reply source did not capture the config reread acknowledgement"
+  CONFIG_RESULT="$PARENT/state/procevent-inbox/$SID.3.result"
+  remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" handle ios 3 "$CONFIG_RESULT" >/dev/null \
+    || fail "remote config reread acknowledgement was not ingested"
+  pass "remote inherited config retains and retries a failed live reread nudge"
+else
+  printf 'skip: root_job: remote-inherited-config-retains-and-retries-a-failed-live-reread needs a job user that mode bits deny\n'
 fi
-if [ ! -f "$NUDGE_MARKER" ]; then
-  chmod 755 "$PARENT_ROUTE_INBOX"
-  printf 'config push failure output:\n%s\n' "$(cat "$TMP_ROOT/config-push-fail.out")" >&2
-  fail "failed remote config reread did not retain a retry marker"
-fi
-assert_grep 'remote=1' "$NUDGE_MARKER" "remote config reread marker lost its placement"
-chmod 755 "$PARENT_ROUTE_INBOX"
-remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-retry.out" \
-  || fail "unchanged remote config push did not retry its pending reread"
-assert_absent "$NUDGE_MARKER" "successful remote config reread left its retry marker"
-assert_grep 'config-reread: sent' "$TMP_ROOT/config-push-retry.out" "remote config reread retry was not reported"
-CONFIG_CORR=$(newest_remote_inbox_corr)
-[ -n "$CONFIG_CORR" ] || fail "remote config reread did not carry a correlation token"
-printf 'done [corr=%s]: inherited config re-read\n' "$CONFIG_CORR" >> "$REMOTE_HOME/state/parent-replies.status"
-await_reply_result "$PARENT/state/procevent-inbox/$SID.3.result" \
-  || fail "remote reply source did not capture the config reread acknowledgement"
-CONFIG_RESULT="$PARENT/state/procevent-inbox/$SID.3.result"
-remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" handle ios 3 "$CONFIG_RESULT" >/dev/null \
-  || fail "remote config reread acknowledgement was not ingested"
-pass "remote inherited config retains and retries a failed live reread nudge"
 
 resolve_ios_pending() {
   local pending_record pending_corr pending_result pending_seq before_results now_results pending_seen

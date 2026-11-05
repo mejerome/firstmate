@@ -1476,6 +1476,10 @@ EOF
 
 test_secondmate_reconcile_publishes_before_request_retirement() {
   local parent mate channel evidence out show rc request
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: secondmate-reconcile-publishes-before-request-retirement needs a job user that mode bits deny\n'
+    return 0
+  fi
   parent=$(make_home reconcile-parent-channel)
   mate=$(make_home reconcile-channel-mate)
   printf 'reconcile-channel-mate\n' > "$mate/.fm-secondmate-home"
@@ -1952,6 +1956,10 @@ test_reconcile_closes_with_evidence_or_keeps_the_call_open() {
 
 test_reconcile_outcomes_retry_partial_failures_once() {
   local home out show list rc
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: reconcile-outcomes-retry-partial-failures-once needs a job user that mode bits deny\n'
+    return 0
+  fi
   home=$(make_home reconcile-partial-retry)
   tasks_in "$home" add sample-reconcile-close-retry "Close retry" --repo sample >/dev/null
   tasks_in "$home" add sample-reconcile-note-retry "Note retry" --repo sample >/dev/null
@@ -3438,6 +3446,10 @@ test_local_merge_entrypoint_refuses_a_captain_held_task() {
 
 test_pr_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() {
   local home id pr rc merge_count
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: pr-merge-entrypoint-separates-an-unreadable-record-from-an-absent-one needs a job user that mode bits deny\n'
+    return 0
+  fi
   home=$(make_home missing-pr-authority-record)
   configure_merged_github "$home"
   id=sample-missing-pr-authority
@@ -3470,6 +3482,10 @@ test_pr_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() {
 
 test_local_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() {
   local home id repo wt before after rc
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: local-merge-entrypoint-separates-an-unreadable-record-from-an-absent-one needs a job user that mode bits deny\n'
+    return 0
+  fi
   home=$(make_home missing-local-authority-record)
   id=sample-missing-local-authority
   repo="$home/projects/sample-local"

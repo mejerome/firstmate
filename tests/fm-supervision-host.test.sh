@@ -1462,6 +1462,10 @@ home_arms() {  # <home>
 }
 parent_of() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
 
+# A process that exited is not a survivor, even where this init leaves it a
+# zombie; the exit-side checks add the strict kill -0 form wherever init reaps.
+not_running() { ! fm_test_process_running "$1"; }
+
 # True once the park's own arm owns the home's only watcher cycle: exactly one
 # arm runs from the home, it is the host's child, and it is the watcher's parent.
 host_owns_the_only_cycle() {  # <home>
@@ -1507,9 +1511,9 @@ leave_a_cycle_for_main_and_restart() {  # <home>
   # The session restarts: the old one ends, and a new one holds the lock.
   first_session=$(tail -n 1 "$home/claude-pids")
   : > "$home/session.stop"
-  wait_until 100 sh -c '! kill -0 "$1" 2>/dev/null' _ "$first_session" || fail "fixture: the first session did not end"
+  wait_until 100 not_running "$first_session" || fail "fixture: the first session did not end"
   rm -f "$home/session.stop"
-  kill -0 "$LEFT_ARM" 2>/dev/null || fail "fixture: the successor arm did not outlive its session"
+  fm_test_process_running "$LEFT_ARM" || fail "fixture: the successor arm did not outlive its session"
   start_hook_session "$home"
 }
 
@@ -1522,8 +1526,12 @@ test_next_park_takes_over_the_cycle_a_pass_through_left_for_main() {
   turn_end "$home"
   wait_until 150 host_owns_the_only_cycle "$home" \
     || fail "takeover: the next park did not own the home's only watcher cycle (left arm $left_arm, watcher $left_watcher):"$'\n'"$(home_arms "$home")"$'\n'"$(cat "$home/state/.supervision-host.log")"
-  ! kill -0 "$left_arm" 2>/dev/null || fail "takeover: the successor arm a pass-through left still runs (pid $left_arm)"
-  ! kill -0 "$left_watcher" 2>/dev/null || fail "takeover: the successor watcher still runs (pid $left_watcher)"
+  fm_test_process_running "$left_arm" && fail "takeover: the successor arm a pass-through left still runs (pid $left_arm)"
+  fm_test_process_running "$left_watcher" && fail "takeover: the successor watcher still runs (pid $left_watcher)"
+  if fm_test_init_reaps_orphans "$home"; then
+    kill -0 "$left_arm" 2>/dev/null && fail "takeover: the successor arm exited but this init still answers for its pid"
+    kill -0 "$left_watcher" 2>/dev/null && fail "takeover: the successor watcher exited but this init still answers for its pid"
+  fi
   sleep 2
   ! hook_exited "$home" || fail "takeover: the takeover woke main: $(cat "$home/hook.err")"
   host_owns_the_only_cycle "$home" || fail "takeover: the park did not keep the cycle it took over"
@@ -1884,6 +1892,13 @@ test_attended_wake_with_an_unreadable_mirror_reaches_main() {
 
   park_again "$home"
   [ -f "$mirror" ] || fail "fixture: the next park did not write the mirror again"
+  # An unreadable mirror needs a job user that mode bits deny; a root job user
+  # reads it, so this fixture reports the precondition instead of a failure. The
+  # missing-mirror case above already ran for real.
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: attended-wake-with-an-unreadable-mirror needs a job user that mode bits deny\n'
+    return 0
+  fi
   chmod 000 "$mirror"
   append_status "$home" 'unreadable mirror'
   wait_until 250 host_exited "$home" || fail "bad mirror: an unreadable mirror did not hand the wake to main"

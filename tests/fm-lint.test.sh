@@ -1369,6 +1369,26 @@ done
 SH
   chmod +x "$fakebin/shellcheck"
 
+  # This init may not reap orphans (act runs the job container under `sleep`), so
+  # a worker that already exited can linger as a zombie that kill -0 answers
+  # for. A zombie is not a survivor, and a pid present before a case started is
+  # not one either: record that pre-run set once, and keep the strict form - the
+  # pid must be gone entirely - wherever init does reap.
+  local reaps=0 pre_pids
+  if fm_test_init_reaps_orphans "$tmp"; then
+    reaps=1
+  fi
+  fixture_pids() {
+    local p
+    for p in /proc/[0-9]*/cmdline; do
+      [ -e "$p" ] || continue
+      tr '\0' ' ' < "$p" 2>/dev/null | grep -qF "$fakebin/shellcheck" || continue
+      p=${p#/proc/}
+      printf '%s\n' "${p%/cmdline}"
+    done
+  }
+  pre_pids=$(fixture_pids)
+
   for jobs in 1 2; do
     for telemetry in off on; do
       lint_tmp="$tmp/lint-$jobs-$telemetry"
@@ -1401,12 +1421,23 @@ SH
       wait "$parent_pid" 2>/dev/null || parent_rc=$?
       survivor=0
       i=0
-      while [ "$i" -lt 100 ] && kill -0 "$shellcheck_pid" 2>/dev/null; do
-        sleep 0.01
-        i=$((i + 1))
-      done
-      if kill -0 "$shellcheck_pid" 2>/dev/null; then
-        survivor=1
+      if [ "$reaps" -eq 1 ]; then
+        while [ "$i" -lt 100 ] && kill -0 "$shellcheck_pid" 2>/dev/null; do
+          sleep 0.01
+          i=$((i + 1))
+        done
+        kill -0 "$shellcheck_pid" 2>/dev/null && survivor=1
+      else
+        while [ "$i" -lt 100 ] && fm_test_process_running "$shellcheck_pid"; do
+          sleep 0.01
+          i=$((i + 1))
+        done
+        if fm_test_process_running "$shellcheck_pid" &&
+          ! printf '%s\n' "$pre_pids" | grep -qx "$shellcheck_pid"; then
+          survivor=1
+        fi
+      fi
+      if [ "$survivor" -eq 1 ]; then
         kill -KILL "$shellcheck_pid" 2>/dev/null || true
       fi
       [ "$parent_rc" -eq 143 ] \

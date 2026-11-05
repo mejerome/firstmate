@@ -2441,6 +2441,10 @@ test_absent_backlog_still_merges() {
 
 test_unreadable_backlog_refuses_the_merge() {
   local case_dir rc
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: unreadable-backlog-refuses needs a job user that mode bits deny\n'
+    return 0
+  fi
   case_dir=$(make_case unreadable-backlog-refuses)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 6262626262626262626262626262626262626262
@@ -2464,6 +2468,10 @@ test_unreadable_backlog_refuses_the_merge() {
 
 test_unreadable_backend_config_refuses_the_merge() {
   local case_dir rc
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: unreadable-backend-config-refuses needs a job user that mode bits deny\n'
+    return 0
+  fi
   case_dir=$(make_case unreadable-backend-config-refuses)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 6363636363636363636363636363636363636363
@@ -2488,6 +2496,10 @@ test_unreadable_backend_config_refuses_the_merge() {
 
 test_unreadable_user_backend_config_refuses_the_merge() {
   local case_dir rc user_config
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: unreadable-user-backend-config-refuses needs a job user that mode bits deny\n'
+    return 0
+  fi
   case_dir=$(make_case unreadable-user-backend-config-refuses)
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
   mkdir -p "$case_dir/wt" "${user_config%/*}"
@@ -2515,6 +2527,10 @@ test_unreadable_user_backend_config_refuses_the_merge() {
 
 test_untraversable_user_backend_config_directory_refuses_the_merge() {
   local case_dir rc user_config
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: untraversable-user-backend-config-directory-refuses needs a job user that mode bits deny\n'
+    return 0
+  fi
   case_dir=$(make_case untraversable-user-backend-config-directory-refuses)
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
   mkdir -p "$case_dir/wt" "${user_config%/*}"
@@ -2564,6 +2580,10 @@ test_absent_user_backend_config_directory_and_backlog_still_merge() {
 
 test_backend_override_bypasses_unreadable_user_config() {
   local case_dir rc user_config
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: backend-override-bypasses-unreadable-user-config needs a job user that mode bits deny\n'
+    return 0
+  fi
   case_dir=$(make_case backend-override-bypasses-unreadable-user-config)
   user_config="$case_dir/user-home/.tasks-axi/config.toml"
   mkdir -p "$case_dir/wt" "${user_config%/*}"
