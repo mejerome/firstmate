@@ -246,6 +246,16 @@ jobs:
       # still fails rather than silently downgrading to no-e2e coverage.
       - name: Install CI prerequisites
         run: bin/fm-ci-prerequisites.sh
+      # The rendered calm-mode export assertions need a real browser, and a bare
+      # runner image has none. Only the shard that runs them pays for it, and a
+      # forge whose image already carries Chrome stays a no-op.
+      - name: Install the browser the rendered export assertions need
+        if: matrix.shard == 6
+        run: |
+          set -eu
+          command -v google-chrome >/dev/null 2>&1 && exit 0
+          command -v chromium >/dev/null 2>&1 && exit 0
+          bin/fm-ci-prerequisites.sh chromium
       - name: Install pinned ShellCheck
         run: |
           set -eu
