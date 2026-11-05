@@ -1,0 +1,9 @@
+temp_root=/tmp/fm-supervision-integrity.FeqeDf
+ok - a fabricated SHA landing claim is refused while a grounded landing report is accepted
+ok - a captain-decision-shaped steer with no durable answer record is refused before delivery
+ok - a steer without the from-firstmate marker cannot carry captain authority even when a record exists
+ok - the suspension record stops branch eligibility and is visible to fm-crew-state.sh
+ok - an outcome row without an authority read is marked, and the audit marks history without rewriting it
+ok - an escalating stale alarm on a pushed-but-unlanded lane with a held landing decision parks once
+ok - the cleanup assertion rejects a deliberately leaked child, then passes after it is gone: not ok - the suite leaked processes under /tmp/fm-supervision-integrity.FeqeDf: 2789656 
+ok - the supervision-integrity suite leaves no process running under its temp root
