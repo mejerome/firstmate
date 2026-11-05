@@ -809,7 +809,7 @@ for a in "$@"; do
     TRACEPARENT_ARG=${a#--traceparent=}
     TRACEPARENT_SET=1
     ;;
-  --tool-profile) want_value=tool-profile ;;
+  --tool-profile) want_value="tool-profile" ;;
   --tool-profile=*)
     TOOL_PROFILE=${a#--tool-profile=}
     TOOL_PROFILE_SET=1
