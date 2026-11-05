@@ -200,6 +200,21 @@ jobs:
           set -eu
           bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # GitHub's ubuntu-latest ships tmux; a self-hosted container image does
+      # not. Install it here when absent so the same job is portable, and keep
+      # the hard requirement below so a silent downgrade to no-e2e still fails.
+      - name: Ensure tmux for e2e tests
+        run: |
+          set -eu
+          command -v tmux >/dev/null && exit 0
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends tmux
+          fi
+          command -v tmux >/dev/null || {
+            echo "::error::tmux is required for real afk injection e2e coverage and could not be installed"
+            exit 1
+          }
       - name: Require tmux for e2e tests
         run: |
           set -eu
@@ -412,6 +427,10 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
+    # GitHub-only: no macOS runner exists on the self-hosted Gitea runner, so the
+    # job would otherwise wait forever and never let the run conclude. Every
+    # other job here is portable and stays required on both forges.
+    if: ${{ github.server_url == 'https://github.com' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
