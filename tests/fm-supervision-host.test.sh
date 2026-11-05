@@ -193,9 +193,15 @@ suite_cleanup() {
   while IFS= read -r home; do
     [ -n "$home" ] && stop_home_processes "$home"
   done < <(cat "$HOMES_FILE" 2>/dev/null)
+  # Shared owner: kill this run's recorded pids and any survivor under this
+  # suite's own temp root, then fail if one remains. It never matches on a
+  # process name, so a sibling home's live watcher is untouched.
   fm_test_cleanup
 }
 trap suite_cleanup EXIT
+trap 'suite_cleanup; exit 130' INT
+trap 'suite_cleanup; exit 143' TERM
+trap 'suite_cleanup; exit 129' HUP
 
 make_home() {  # <name> <attended|away|quiet> [config line]
   local home="$TMP_ROOT/$1"
@@ -337,8 +343,8 @@ test_report_surface_enforces_actor_turn_and_scope() {
     --task alpha --verdict routine --summary 'still busy, nothing new, no action taken' --silent true 2>&1); rc=$?
   expect_code 0 "$rc" "a task-level routine no-change outcome may be silent"
   assert_contains "$out" "silent outcome remains in the outcome store" "silent task outcome response lost its durability note"
-  assert_grep '"task":"alpha","wake":"signal: alpha.status","verdict":"routine","summary":"still busy, nothing new, no action taken","silent":true' \
-    "$state/branch-outcomes.jsonl" "the silent task outcome was not stored"
+  tail -1 "$state/branch-outcomes.jsonl" | jq -e 'select(.task == "alpha" and .verdict == "routine" and .summary == "still busy, nothing new, no action taken" and .silent == true)' >/dev/null \
+    || fail "the silent task outcome was not stored"
   [ "$(cat "$state/.wake-queue" 2>/dev/null || true)" = "$wake_queue_before" ] \
     || fail "a silent task outcome queued a captain notification"
 
@@ -376,8 +382,8 @@ test_report_after_the_return_is_queued_for_main() {
     --task alpha --verdict routine --summary 'still building; nothing new has happened; no action was taken' --silent true 2>&1); rc=$?
   expect_code 0 "$rc" "a silent report after the return must be recorded"
   assert_contains "$out" "silent outcome remains in the outcome store" "the post-return silent report lost its durability note"
-  assert_grep '"task":"alpha","wake":"signal: alpha.status","verdict":"routine","summary":"still building; nothing new has happened; no action was taken","silent":true' \
-    "$state/branch-outcomes.jsonl" "the post-return silent outcome was not retained"
+  tail -1 "$state/branch-outcomes.jsonl" | jq -e 'select(.task == "alpha" and .verdict == "routine" and .summary == "still building; nothing new has happened; no action was taken" and .silent == true)' >/dev/null \
+    || fail "the post-return silent outcome was not retained"
   [ "$(cat "$state/.wake-queue")" = "$queue_before" ] || fail "a silent report after the return queued another check wake"
   drained=$(FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh" 2>&1)
   assert_contains "$drained" "supervision-host outcome 2 for alpha [captain] was recorded after the captain returned" \

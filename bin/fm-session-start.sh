@@ -1457,6 +1457,7 @@ print_fleet_state_full() {
   [ "$ORPHAN_STATUS_FOUND" -eq 1 ] || printf '(none)\n'
 
   print_afk_subsection
+  print_supervision_branch_subsection
   print_public_commitments
 }
 
@@ -1494,6 +1495,21 @@ print_afk_subsection() {
   fi
 }
 
+# Supervision-branch integrity suspension (bin/fm-branch-suspend.sh). The
+# record is read on every offer by the dispatch handshake, so the digest must
+# say whether the branch is taking wakes; otherwise a contained branch looks
+# like an idle one. This is not a posture: MAIN stays attended and keeps the
+# ordinary wake path.
+print_supervision_branch_subsection() {
+  local status=0
+  subsection "SUPERVISION BRANCH"
+  "$SCRIPT_DIR/fm-branch-suspend.sh" status 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'The branch stays down until firstmate inspects and removes the record with %s resume.\n' \
+      "$SCRIPT_DIR/fm-branch-suspend.sh"
+  fi
+}
+
 # Public commitments made through the myfirstmate relay. A promise to reply in a
 # public thread must survive compaction and restart, so it is surfaced from disk
 # here rather than from conversation memory. fm-public-followup-lib.sh owns both
@@ -1522,6 +1538,7 @@ print_public_commitments() {
 print_secondmate_checkpoint_fleet() {
   local count id
   print_afk_subsection
+  print_supervision_branch_subsection
   print_public_commitments
   subsection "Secondmate checkpoint"
   printf 'This is a secondmate home, so this digest prints a bounded checkpoint instead\n'

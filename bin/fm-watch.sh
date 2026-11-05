@@ -53,6 +53,12 @@
 #                          the run step cannot show; that deferral still
 #                          re-surfaces once per PAUSE_RESURFACE_SECS, and a pane
 #                          that writes nothing keeps the unchanged schedule.
+#                          A lane with a recorded PR whose work is fully pushed
+#                          but not landed, and whose landing decision is held
+#                          for the captain, parks with a reason instead: the
+#                          held decision is the answer, so the alarm stops
+#                          ringing rather than pressuring anyone to invent an
+#                          outcome (wedge_held_landing).
 #                          A pane whose recorded endpoint holds no agent at all is
 #                          not a wedge and is reported ONCE instead of escalating
 #                          on that cadence forever (wedge_dead_record); only the
@@ -229,6 +235,8 @@ WATCH_HOME_EXISTED=0
 # below).
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# shellcheck source=bin/fm-landed-work-lib.sh
+. "$SCRIPT_DIR/fm-landed-work-lib.sh"
 # Persistent-secondmate endpoint liveness: the shared probe/relaunch library is
 # the same one bin/fm-bootstrap.sh's session-start sweep drives, so ordinary
 # supervision recovers a positively dead or missing mate through the identical
@@ -1227,6 +1235,64 @@ wait_record() {  # <kind> <subject> <whom> <action> <age-record>
   printf '%s\037%s\037%s\037%s\037%s' "$1" "$2" "$3" "$4" "$5"
 }
 
+# A HELD LANDING DECISION IS A PARK, NOT A WEDGE.
+# A lane whose work is fully pushed but not landed is waiting on exactly one
+# thing: the captain's landing decision, which is already a durable captain-held
+# task. Letting the wedge ladder keep escalating that pane pressures whichever
+# actor sees it to produce a new outcome merely to stop the alarm, which is how
+# an invented "merged" claim becomes attractive. When the positive evidence is
+# present - a recorded PR, every commit on a remote, the landed-work test still
+# false, and an open captain hold on the task - this returns 0 after parking the
+# alarm with one notification and then absorbing every later sighting while the
+# SAME hold lifecycle stands. Releasing or answering the hold removes the
+# marker and restores the ordinary schedule. Missing or contradictory evidence
+# returns 1 and leaves the existing ladder exactly as strong as it was.
+wedge_held_landing() {  # <window> <since-file> <triage-label> <idle-age> <task>
+  local win=$1 since_file=$2 label=$3 age=$4 task=$5 key marker meta wt project pr branch sha identity record reason
+  [ -n "$task" ] || return 1
+  key=$(window_key "$win")
+  marker="$STATE/.landing-held-$key"
+  meta="$STATE/$task.meta"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  wt=$(fm_meta_get "$meta" worktree)
+  project=$(fm_meta_get "$meta" project)
+  pr=$(fm_meta_get "$meta" pr)
+  [ -n "$wt" ] && [ -d "$wt" ] && [ -n "$pr" ] || return 1
+  branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
+  sha=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 1
+  # Every commit must be on a remote: an unpushed commit is ordinary local work,
+  # not a landing decision.
+  [ -z "$(git -C "$wt" log --oneline HEAD --not --remotes -- 2>/dev/null)" ] || return 1
+  identity=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "${FM_CAPTAIN_HOLD_BIN:-$SCRIPT_DIR/fm-captain-hold.sh}" open "$task" --identity 2>/dev/null) || {
+    rm -f -- "$marker"
+    return 1
+  }
+  [ -n "$identity" ] || { rm -f -- "$marker"; return 1; }
+  if [ -f "$marker" ] && [ ! -L "$marker" ]; then
+    record=$(cat "$marker" 2>/dev/null || true)
+    if [ "$record" = "$task"$'\t'"$identity"$'\t'"$sha"$'\t'"$pr" ]; then
+      triage_log "absorbed $label (parked while the landing decision for $task stays held, idle ${age}s): $win"
+      return 0
+    fi
+    rm -f -- "$marker"
+  fi
+  # The landed-work test is the one owner shared with bin/fm-teardown.sh. A
+  # proven landing is teardown territory, never a park.
+  if fm_landed_work_is_landed "$wt" "$pr" "$branch" "$project"; then
+    rm -f -- "$marker"
+    return 1
+  fi
+  if ! printf '%s\t%s\t%s\t%s\n' "$task" "$identity" "$sha" "$pr" > "$marker"; then
+    return 1
+  fi
+  rm -f -- "$since_file" "$STATE/.wedge-escalations-$key"
+  clear_write_tracking "$key"
+  reason="stale: $win (parked: work is pushed but unlanded at $sha, and the landing decision for $task is held for the captain; the held decision is the answer, so this alarm stops escalating while that hold stays open)"
+  fm_wake_append stale "$win" "$reason" || exit 1
+  wake "$reason"
+}
+
 # The evidence that a quiet pane is a BOUNDED WAIT rather than a wedge suspect,
 # read at the one moment it decides anything: when an escalation is about to
 # fire. Two records answer it, and they are independent: the worker's own status
@@ -1534,6 +1600,11 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
       fm_epoch_seconds_to age
       age=$(( age - since ))
       if [ "$age" -ge "$STALE_ESCALATE_SECS" ]; then
+        # A held landing decision is the answer to this alarm, so park before
+        # any other deferral or escalation evidence is consulted.
+        if wedge_held_landing "$win" "$since_file" "$label" "$age" "$task"; then
+          return 0
+        fi
         if evidence=$(wedge_wait_evidence "$task") &&
            wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"; then
           return 0

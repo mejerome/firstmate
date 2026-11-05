@@ -224,6 +224,13 @@ Its header owns the byte-stable-prefix contract (no timestamps, no fleet snapsho
 The outcome store is `bin/fm-branch-outcome.sh`.
 Its header owns the append-only format, read cursor, and bounded per-task status-coverage indexes.
 
+Every new row carries the authority read that justified its verdict: a path plus revision, a PR or API response, or command output.
+The store marks an absent or unrecognized read unverified rather than pretending it is evidence.
+A summary that asserts merged, landed, or released work must name a read that supports it.
+A named commit that no readable repository holds, and a target revision that does not contain that commit, are refused before the row is stored.
+That verdict is owned by `bin/fm-landed-work-lib.sh`, the same landed-work test `bin/fm-teardown.sh` uses.
+The `audit` subcommand marks existing rows that rest on an unverifiable read in `state/branch-outcomes-authority-audit.txt`; it never rewrites history.
+
 Outcomes are written to the store before delivery to Pi.
 A captain row advances the cursor only after its matching visible session entry exists.
 Locked session-start replay stops before the first captain row, so it cannot acknowledge that outcome through prose alone.
@@ -261,6 +268,16 @@ Local-only landing and second-mate retirement never do ("Postures" below).
 
 Supervision is default-on for every task once a Pi primary session owns the fleet lock (docs/configuration.md "Pi supervision branch").
 No captain grant file is required.
+
+#### Integrity suspension
+
+`bin/fm-branch-suspend.sh suspend --reason <one line>` is the one explicit, firstmate-invocable way to stand the branch down in place.
+It writes `state/.branch-suspended`, and `resume` removes that record.
+Presence is read at every routing decision by `.pi/extensions/lib/fm-branch-dispatch.ts` (`branchSuspended`), so the branch is offered no wake in any posture and MAIN keeps the ordinary wake path.
+This contains an integrity failure without restarting the primary session and without entering away or quiet mode.
+Only MAIN may suspend or resume; the branch actor is refused through `bin/fm-lease-lib.sh`.
+Suspension is not a posture: it grants no authority and changes no merge, spawn, answer, or teardown gate.
+The session-start digest prints a `SUPERVISION BRANCH` section from `bin/fm-branch-suspend.sh status`, and `bin/fm-crew-state.sh --supervision-branch` reports the same state in one line.
 
 A fleet-wide heartbeat is separately eligible only when every row other than a check or decision-owned signal/stale row is a heartbeat row or a resolvable task-local row (see "Heartbeat routing" below).
 Every other fleet-wide or unresolvable wake, and every watcher-failure alarm, stays on main.
@@ -635,6 +652,14 @@ At that moment the branch reports any refusal instead of concluding there is "no
 
 ### Portable regressions
 
+`tests/fm-supervision-integrity.test.sh` covers:
+
+- A fabricated short-SHA landing claim refused before the outcome store is touched.
+- A captain-decision-shaped steer refused with "no captain answer on record" when no durable answer exists, and a steer without the from-firstmate marker refused even when a record exists.
+- The suspension knob making `branchOfferForWake` ineligible and its state visible to the session-start digest and `bin/fm-crew-state.sh`.
+- An outcome row without an authority read marked unverified, and the audit marking it without rewriting the store.
+- A pushed-but-unlanded lane with a held landing decision parked once instead of escalating forever.
+
 `tests/fm-pi-branch-extension.test.sh` covers:
 
 - Dispatch, and signal and stale report scoping with unscoped heartbeat reports.
@@ -653,8 +678,8 @@ At that moment the branch reports any refusal instead of concluding there is "no
 
 `tests/fm-branch-supervision.test.sh` covers:
 
-- Prompt stability, including the landed-work cleanup instruction and the second-mate relay, signal-span, and stale-liveness rules.
-- Store append-only behavior, the captain cursor barrier, processed-marker sequence bounds and absent-marker safety, and captain-only recorded ages.
+- Prompt stability, including the landed-work cleanup instruction, the captain-authority record rule, and the second-mate relay, signal-span, and stale-liveness rules.
+- Store append-only behavior, authority provenance and the landing-claim refusal, the authority audit, the captain cursor barrier, processed-marker sequence bounds and absent-marker safety, and captain-only recorded ages.
 - Leases, guards, and non-branch-home invariance.
 - The away relocation: only under a valid live record, never for local-only landing, queued-only branch dispatch rather than orphaned in-flight recovery, the spend cap for both actors and its lock-held recheck, and the attended guarded-action behavior restored by archive or an invalid record.
 

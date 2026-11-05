@@ -197,6 +197,126 @@ fm_test_reap_watchers() {
   rm -f "$FM_TEST_WATCHER_REGISTRY"
 }
 
+# --- process-tree reaping for suites that start real monitoring loops ---------
+#
+# A suite that starts a host, a watcher, or a fake engine must not leave it
+# behind, even when the suite exits through an interrupt or a failing assertion.
+# Every pid is recorded in a `$$`-keyed file (command substitutions lose shell
+# arrays), and every tmp root is registered so cleanup can find a survivor by
+# its command line, its cwd, or its environment - never by a broad process
+# pattern. The final assertion is deliberately separate from the kill: a kill
+# that silently misses a process must fail the suite, not pass it.
+FM_TEST_PROCESS_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/.fm-test-processes.$$.XXXXXX") || return 1
+FM_TEST_PROCESS_ROOTS=$(mktemp "${TMPDIR:-/tmp}/.fm-test-process-roots.$$.XXXXXX") || return 1
+
+fm_test_track_pid() {  # <pid>
+  case "${1:-}" in ''|*[!0-9]*|0|1) return 1 ;; esac
+  printf '%s\n' "$1" >> "$FM_TEST_PROCESS_REGISTRY"
+}
+
+fm_test_register_process_root() {  # <root>
+  [ -n "${1:-}" ] || return 1
+  printf '%s\n' "$1" >> "$FM_TEST_PROCESS_ROOTS"
+}
+
+fm_test_pid_under_root() {  # <pid> <root>
+  local pid=$1 root=$2 cmd cwd env
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
+  case "$cmd" in *"$root"*) return 0 ;; esac
+  cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+  case "$cwd" in "$root"|"$root"/*) return 0 ;; esac
+  if [ -r "/proc/$pid/environ" ]; then
+    env=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null || true)
+    case "$env" in *"$root"*) return 0 ;; esac
+  fi
+  return 1
+}
+
+fm_test_pids_under_root() {  # <root>
+  local root=$1 pid
+  if [ -d /proc/1 ]; then
+    for pid in /proc/[0-9]*; do
+      pid=${pid##*/}
+      [ "$pid" != "$$" ] || continue
+      [ "$pid" != "${PPID:-0}" ] || continue
+      [ "$pid" != 1 ] || continue
+      fm_test_pid_under_root "$pid" "$root" && printf '%s\n' "$pid"
+    done
+    return 0
+  fi
+  ps -eo pid=,args= 2>/dev/null | while read -r pid args; do
+    case "$args" in *"$root"*) printf '%s\n' "$pid" ;; esac
+  done
+}
+
+fm_test_kill_pid_list() {  # <pid>...
+  local pid i alive
+  for pid in "$@"; do
+    case "$pid" in ''|*[!0-9]*|0|1|"$$"|"${PPID:-0}") continue ;; esac
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  i=0
+  while [ "$i" -lt 40 ]; do
+    alive=0
+    for pid in "$@"; do
+      case "$pid" in ''|*[!0-9]*|0|1|"$$"|"${PPID:-0}") continue ;; esac
+      if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+    done
+    [ "$alive" -eq 0 ] && break
+    sleep 0.05
+    i=$((i + 1))
+  done
+  for pid in "$@"; do
+    case "$pid" in ''|*[!0-9]*|0|1|"$$"|"${PPID:-0}") continue ;; esac
+    if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+  done
+  for pid in "$@"; do wait "$pid" 2>/dev/null || true; done
+}
+
+fm_test_reap_tracked_processes() {
+  local pid
+  local pids=()
+  [ -f "$FM_TEST_PROCESS_REGISTRY" ] || return 0
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    pids+=("$pid")
+  done < "$FM_TEST_PROCESS_REGISTRY"
+  [ "${#pids[@]}" -eq 0 ] || fm_test_kill_pid_list "${pids[@]}"
+  : > "$FM_TEST_PROCESS_REGISTRY"
+}
+
+fm_test_reap_processes_under_registered_roots() {
+  local root pid
+  local pids=()
+  [ -f "$FM_TEST_PROCESS_ROOTS" ] || return 0
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    while IFS= read -r pid; do
+      [ -n "$pid" ] || continue
+      pids+=("$pid")
+    done < <(fm_test_pids_under_root "$root")
+  done < "$FM_TEST_PROCESS_ROOTS"
+  [ "${#pids[@]}" -eq 0 ] || fm_test_kill_pid_list "${pids[@]}"
+}
+
+fm_test_assert_no_processes_under_registered_roots() {
+  local root pid leaked=''
+  [ -f "$FM_TEST_PROCESS_ROOTS" ] || return 0
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    while IFS= read -r pid; do
+      [ -n "$pid" ] || continue
+      leaked="${leaked}${root}: ${pid}; "
+    done < <(fm_test_pids_under_root "$root")
+  done < "$FM_TEST_PROCESS_ROOTS"
+  if [ -n "$leaked" ]; then
+    printf 'not ok - test cleanup left processes under its own temporary root: %s\n' "$leaked" >&2
+    return 1
+  fi
+  return 0
+}
+
 # Ceiling on how long a fixture's blocking stub may keep polling. A stub that
 # waits for a trigger file by re-running `sleep` is a high-frequency source of
 # process spawns, and one that outlives its test - because the test was killed
@@ -219,8 +339,17 @@ fm_test_remove_tree() {
 
 fm_test_cleanup() {
   local d
+  if [ "${FM_TEST_CLEANUP_RUNNING:-0}" = 1 ]; then
+    return 0
+  fi
+  FM_TEST_CLEANUP_RUNNING=1
   fm_test_reap_watchers
   fm_test_reap_procevent_homes
+  fm_test_reap_tracked_processes
+  fm_test_reap_processes_under_registered_roots
+  if ! fm_test_assert_no_processes_under_registered_roots; then
+    exit 1
+  fi
   for d in "${FM_TEST_CLEANUP_DIRS[@]:-}"; do
     [ -n "$d" ] && fm_test_remove_tree "$d"
   done
@@ -230,6 +359,7 @@ fm_test_cleanup() {
     done < "$FM_TEST_CLEANUP_REGISTRY"
     rm -f "$FM_TEST_CLEANUP_REGISTRY"
   fi
+  rm -f "$FM_TEST_PROCESS_REGISTRY" "$FM_TEST_PROCESS_ROOTS"
 }
 
 fm_test_tmproot() {
@@ -243,6 +373,7 @@ fm_test_tmproot() {
     rm -rf "$root"
     return 1
   fi
+  fm_test_register_process_root "$root"
   printf '%s\n' "$root"
 }
 

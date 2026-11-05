@@ -160,6 +160,12 @@
 #
 # Read-only and side-effect free. Always exits 0 on a successful read regardless
 # of state; exit 2 only on a usage error (no id).
+#
+# `--supervision-branch` is the one non-task read: it reports the integrity
+# suspension record (bin/fm-branch-suspend.sh) in this script's one-line shape,
+# so a heartbeat can see a contained branch beside the fleet it supervises.
+# That output is `state: active|suspended · source: branch-suspension · ...`.
+# It grants nothing and changes no task read.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -185,7 +191,16 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
 ID=${1:-}
-[ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
+if [ "$ID" = "--supervision-branch" ]; then
+  [ "$#" -eq 1 ] || { echo "usage: fm-crew-state.sh <id> | --supervision-branch" >&2; exit 2; }
+  BRANCH_STATUS_OUT=$("$SCRIPT_DIR/fm-branch-suspend.sh" status 2>&1) || true
+  BRANCH_STATE=$(printf '%s\n' "$BRANCH_STATUS_OUT" | sed -n 's/^state: //p' | head -1)
+  BRANCH_DETAILS=$(printf '%s\n' "$BRANCH_STATUS_OUT" | grep -v '^state: ' | awk 'NF { printf "%s%s", sep, $0; sep="; " }')
+  [ -n "$BRANCH_STATE" ] || BRANCH_STATE=unknown
+  printf 'state: %s · source: branch-suspension · %s\n' "$BRANCH_STATE" "${BRANCH_DETAILS:-no further record}"
+  exit 0
+fi
+[ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id> | --supervision-branch" >&2; exit 2; }
 
 # Fleet snapshot composition supplies its captured metadata path here so every
 # state read resolves the same task generation selected by that snapshot.

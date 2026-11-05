@@ -102,7 +102,19 @@
 # stranding it in chat the main firstmate never reads. On the inbox plane the
 # marker travels verbatim inside the recorded body. A crewmate/scout target,
 # an explicit backend-target escape-hatch target, and the --key path are never
-# marked - their behavior is unchanged.
+# marked - their behavior is unchanged, EXCEPT that a steer carrying captain
+# authority is marked on every target (see the next paragraph).
+#
+# Captain-authority gate: a message that cites a captain decision, ruling,
+# answer, approval, or instruction is refused unless it names a captain-held
+# task through --captain-answer <task-id> whose newest resolution is a durable
+# captain answer recorded by bin/fm-captain-hold.sh answer/answers. The check
+# reads the configured backlog through bin/fm-captain-hold.sh recorded-answer;
+# transcript, mirror, status-line, and inbox prose are never evidence. The
+# resulting steer is marked with the from-firstmate carrier on every target
+# kind, and an unmarked message is refused even when a record exists. A refusal
+# exits nonzero before any durable inbox record, pending-reply expectation, or
+# typed submission is created. --captain-answer is refused with --key.
 #
 # Parent-owned pending-reply expectation: every newly marked secondmate request
 # except an explicit --fire-and-forget delivery receives a privacy-safe
@@ -249,6 +261,8 @@ fi
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-marker-lib.sh
 . "$SCRIPT_DIR/fm-marker-lib.sh"
+# shellcheck source=bin/fm-authority-lib.sh
+. "$SCRIPT_DIR/fm-authority-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -467,6 +481,7 @@ fi
 # message exactly as before, so ordinary sends are byte-identical.
 RESOLVE_KEYS=
 FIRE_AND_FORGET_ID=
+CAPTAIN_ANSWER_TASK=
 fm_send_add_resolve_key() { # <key>
   local k=$1
   case "$k" in
@@ -515,6 +530,26 @@ while :; do
       exit 1
     }
     FIRE_AND_FORGET_ID=${1#--fire-and-forget=}
+    shift
+    ;;
+  --captain-answer)
+    [ $# -ge 2 ] || {
+      echo "error: --captain-answer requires the captain-held task id that records the answer" >&2
+      exit 1
+    }
+    [ -z "$CAPTAIN_ANSWER_TASK" ] || {
+      echo "error: duplicate --captain-answer" >&2
+      exit 1
+    }
+    CAPTAIN_ANSWER_TASK=$2
+    shift 2
+    ;;
+  --captain-answer=*)
+    [ -z "$CAPTAIN_ANSWER_TASK" ] || {
+      echo "error: duplicate --captain-answer" >&2
+      exit 1
+    }
+    CAPTAIN_ANSWER_TASK=${1#--captain-answer=}
     shift
     ;;
   *) break ;;
@@ -688,6 +723,18 @@ if [ -n "$RESOLVE_KEYS" ]; then
   done
 fi
 
+# Captain-authority gate: a steer that cites a captain decision is evidence of
+# nothing by itself. It must name a captain-held task whose durable answer was
+# recorded by bin/fm-captain-hold.sh answer/answers, and the wire message must
+# carry the from-firstmate marker so the worker can attribute it. Transcript,
+# mirror, status-line, and inbox prose are never consulted. Refuse before any
+# durable send.
+CAPTAIN_AUTHORITY=0
+if [ -n "$CAPTAIN_ANSWER_TASK" ] || fm_authority_text_claims_captain "${*:-}"; then
+  CAPTAIN_AUTHORITY=1
+  fm_authority_require_record "$CAPTAIN_ANSWER_TASK" "steer (fm-send)" || exit 1
+fi
+
 # Close each answered decision in this home's ledger, only after the answer is
 # durably sent: enqueued on the inbox plane, submit-confirmed on the typed
 # plane. An append failure exits nonzero with the manual close
@@ -761,6 +808,11 @@ fm_send_feed_resolved_holds() { # <answer-text>
 # error with the attempted resolution attached.
 
 if [ "${1:-}" = "--key" ]; then
+  [ -z "$CAPTAIN_ANSWER_TASK" ] ||
+    {
+      echo "error: --captain-answer cannot accompany --key; a keystroke carries no attributable text" >&2
+      exit 1
+    }
   [ -z "$FIRE_AND_FORGET_ID" ] ||
     {
       echo "error: --fire-and-forget cannot accompany --key" >&2
@@ -798,6 +850,12 @@ else
   if [ -z "${MESSAGE//[[:space:]]/}" ]; then
     echo "error: a text steer requires a nonempty message; nothing was sent (an empty marked request would deliver only marker and correlation bytes and leave the parent waiting on a reply to nothing)" >&2
     exit 1
+  fi
+  if [ "$CAPTAIN_AUTHORITY" = 1 ]; then
+    # The record exists; now make the steer attributable. Idempotent when a
+    # secondmate target is marked again below.
+    fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+    fm_authority_require_marked "$MESSAGE" "steer (fm-send)" || exit 1
   fi
   if [ "$TARGET_BACKEND" = remote ]; then
     FM_SEND_REMOTE_BUDGET=${FM_SEND_REMOTE_BUDGET:-30}
