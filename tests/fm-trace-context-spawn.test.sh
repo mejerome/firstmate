@@ -359,6 +359,13 @@ test_unsafe_delivery_refuses_to_append_launch() {
 
 test_failed_metadata_append_unsets_carrier_and_still_launches() {
   local rec out status meta
+  # The injected append failure is a mode-bit denial, which a root job user
+  # ignores; both the refusal and the unset carrier depend on it, so the case
+  # reports the precondition instead of asserting around it.
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: failed-metadata-append-unsets-carrier needs a job user that mode bits deny\n'
+    return 0
+  fi
   rec=$(make_spawn_case tc-metadata-failure)
   read_case_record "$rec"
   : > "$HOME_DIR/config/trace-context"
