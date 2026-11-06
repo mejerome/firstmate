@@ -2753,7 +2753,7 @@ pass "nonzero exit with no output stays armed and silent"
 HF="$TMP_ROOT/hf"; new_home "$HF"
 # shellcheck disable=SC2016  # single quotes are deliberate: the child shell expands this.
 pe_register "$HF" lavish big-src -- /bin/sh -c 'printf "x%.0s" $(seq 1 5000)' >/dev/null
-FM_PROCEVENT_MAX_OUTPUT_BYTES=100 FM_HOME="$HF" "$ROOT/bin/fm-procevent.sh" start big-src >/dev/null 2>&1
+FM_PROCEVENT_MAX_OUTPUT_BYTES=100 FM_HOME="$HF" timeout 120 "$ROOT/bin/fm-procevent.sh" start big-src >/dev/null 2>&1
 RB=$(first_result "$HF" big-src || true)
 [ -n "$RB" ] || fail "bounded output was not captured at all"
 [ "$(wc -c < "$RB" | tr -d ' ')" -le 100 ] || fail "output bound was not enforced"
@@ -3649,7 +3649,7 @@ pe_register "$HDETACHED" lavish detached-attached-src -- \
   "$BLOCKER" "$DETACHED_TRIGGER" "detached attached payload"
 FM_PROCEVENT_OWNER_LEASE_SECONDS=1 FM_PROCEVENT_OWNER_CHECK_SECONDS=1 FM_HOME="$HDETACHED" \
   perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
-    "$ROOT/bin/fm-procevent.sh" start detached-attached-src \
+    timeout 120 "$ROOT/bin/fm-procevent.sh" start detached-attached-src \
     > "$TMP_ROOT/detached-attached.out" 2>&1 &
 DETACHED_START_PID=$!
 wait_for "$HDETACHED/state/procevent/detached-attached-src.runner" \

@@ -1671,7 +1671,7 @@ SH
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$home/adapter-root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
-    "$ROOT/bin/fm-procevent.sh" start fixture-src >/dev/null 2>&1
+    timeout 120 "$ROOT/bin/fm-procevent.sh" start fixture-src >/dev/null 2>&1
   assert_absent "$home/state/procevent-inbox/fixture-src.1.handled" \
     "feeding a captain answer retired the notification firstmate still needs"
   assert_present "$home/state/procevent-inbox/fixture-src.1.result" \
