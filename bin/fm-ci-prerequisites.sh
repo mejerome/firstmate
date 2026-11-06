@@ -99,13 +99,23 @@ if [ -n "$packages" ]; then
 fi
 
 if [ "$need_jq" -eq 1 ]; then
-  # One pinned build on both forges, installed ahead of any distribution jq so
-  # the rest of this job and every later step compile the suite's programs.
-  jq_destination="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-ci-bin"
+  # One pinned build on both forges, installed directly into /usr/bin where this
+  # job may write it: fixtures run production code with PATH="$fakebin:$BASE_PATH"
+  # and BASE_PATH is /usr/bin:/bin:/usr/sbin:/sbin, so a jq that lives only on
+  # the runner-temp PATH is invisible to them - tests/fm-bootstrap.test.sh then
+  # reports "COMPACTION: error ... source=unreadable-json" for a valid file.
+  # GitHub already ships jq 1.7 in /usr/bin, so this is a no-op there.
+  jq_destination=
+  if [ "$(id -u)" -eq 0 ] && [ -d /usr/bin ] && [ -w /usr/bin ]; then
+    jq_destination=/usr/bin
+  fi
+  if [ -z "$jq_destination" ]; then
+    jq_destination="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-ci-bin"
+  fi
   "$ROOT/bin/fm-install-jq.sh" "$jq_destination"
   PATH="$jq_destination:$PATH"
   export PATH
-  if [ -n "${GITHUB_PATH:-}" ]; then
+  if [ -n "${GITHUB_PATH:-}" ] && [ "$jq_destination" != /usr/bin ]; then
     printf '%s\n' "$jq_destination" >> "$GITHUB_PATH"
   fi
 fi
