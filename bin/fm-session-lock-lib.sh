@@ -164,9 +164,15 @@ EOF
 }
 
 # True if $1 is a live process that looks like a verified harness.
+# A zombie has already exited and only waits for an init that reaps it, so it is
+# not a live harness: kill -0 still answers for it, and an init that never reaps
+# orphans (act runs the job container under `sleep`) leaves it answering
+# forever, which would keep a dead owner on the lock instead of reclaiming it.
 fm_harness_pid_alive() {
-  local pid=$1 comm args
+  local pid=$1 comm args state
   kill -0 "$pid" 2>/dev/null || return 1
+  state=$(sed -n 's/^[0-9][0-9]* (.*) \([A-Za-z]\).*$/\1/p' "/proc/$pid/stat" 2>/dev/null) || state=
+  [ "$state" != Z ] || return 1
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
   args=$(ps -o args= -p "$pid" 2>/dev/null)
   fm_harness_process_matches "$comm" "$args"
