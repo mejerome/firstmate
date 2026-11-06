@@ -1489,15 +1489,26 @@ test_root_deadline_names_the_root_and_reaps_the_tree() {
   wait "$sentinel_pid" 2>/dev/null || true
   if [ -s "$child_pid_file" ]; then
     child_pid=$(cat "$child_pid_file")
-    kill -0 "$child_pid" 2>/dev/null \
+    # A child that exited is not a survivor even where this init leaves it a
+    # zombie, so the check asks whether it still runs; where init does reap,
+    # the strict form below still requires the pid to be gone entirely.
+    fm_test_process_running "$child_pid" \
       && fail "the blocked root's child survived the deadline kill"
+    if fm_test_init_reaps_orphans "$tmp"; then
+      kill -0 "$child_pid" 2>/dev/null \
+        && fail "the blocked root's child exited but this init still answers for its pid"
+    fi
   else
     fail "the blocked root never recorded its child pid"
   fi
   if [ -s "$stub_pid_file" ]; then
     stub_pid=$(cat "$stub_pid_file")
-    kill -0 "$stub_pid" 2>/dev/null \
+    fm_test_process_running "$stub_pid" \
       && fail "the blocked root's ShellCheck process survived the deadline kill"
+    if fm_test_init_reaps_orphans "$tmp"; then
+      kill -0 "$stub_pid" 2>/dev/null \
+        && fail "the blocked root's ShellCheck exited but this init still answers for its pid"
+    fi
   else
     fail "the blocked root never recorded its ShellCheck pid"
   fi
