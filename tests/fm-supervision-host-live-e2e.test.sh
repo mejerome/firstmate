@@ -46,6 +46,9 @@ stop_lab() {
   done < "$LAB/claude-pids" 2>/dev/null || true
 }
 trap 'stop_lab; fm_test_cleanup' EXIT
+trap 'stop_lab; fm_test_cleanup; exit 130' INT
+trap 'stop_lab; fm_test_cleanup; exit 143' TERM
+trap 'stop_lab; fm_test_cleanup; exit 129' HUP
 
 # A lab copy of this checkout's current tree (tracked and untracked, never
 # ignored), committed on main, so the lab is a genuine primary checkout whose

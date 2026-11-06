@@ -43,6 +43,22 @@ export function afkPostureRecordPresent(state: string): boolean {
   }
 }
 
+// The integrity-suspension record's state-relative filename, exactly as
+// bin/fm-branch-suspend.sh writes it. Presence is the only fact read here: a
+// suspended branch takes no wakes at all (docs/pi-supervision-branch.md
+// "Integrity suspension"). It is deliberately separate from the away-posture
+// record: suspension parks the branch while leaving MAIN attended, and it
+// grants no captain authority.
+export const BRANCH_SUSPENDED_FILE = ".branch-suspended";
+
+export function branchSuspended(state: string): boolean {
+  try {
+    return statSync(join(state, BRANCH_SUSPENDED_FILE)).isFile();
+  } catch {
+    return false;
+  }
+}
+
 // The per-wake prompt every supervision-branch host sends: the Pi branch
 // extension, and the supervision host off Pi (bin/fm-supervision-host.sh,
 // through bin/fm-branch-dispatch.mjs), so the wake text has one owner. The
@@ -370,6 +386,11 @@ function spanIsDecisionOwned(
 }
 
 export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = false, attendedHost = false): UnreadWakeScope {
+  // An integrity suspension is the firstmate's explicit stand-down of this
+  // branch. It is checked before every other routing rule, including the away
+  // collapse, because a branch that cannot be trusted must not take a wake in
+  // any posture. MAIN keeps the ordinary wake path; nothing is hidden.
+  if (branchSuspended(state)) return EMPTY_SCOPE;
   let queue = "";
   try {
     queue = readFileSync(`${state}/.wake-queue`, "utf8");
@@ -606,6 +627,12 @@ export interface BranchOfferVerdict {
 export function branchOfferForWake(state: string, message: string, afk: boolean, attendedHost = false): BranchOfferVerdict {
   const heartbeat = /^heartbeat($|:)/.test(message);
   const isCheckTrigger = /^check:/.test(message);
+  // The offer handshake is the single gate every host passes through. Check the
+  // suspension here as well as in the scan so a future caller that precomputes
+  // a scope cannot route around it.
+  if (branchSuspended(state)) {
+    return { scope: EMPTY_SCOPE, heartbeat, eligible: false, awayOnly: false };
+  }
   const scope = scopeForUnreadWake(state, heartbeat, afk, attendedHost && !afk);
   const triggerKeys = /^signal:/.test(message)
     ? message

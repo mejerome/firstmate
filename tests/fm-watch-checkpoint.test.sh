@@ -7,6 +7,13 @@ set -u
 
 CHECKPOINT="$ROOT/bin/fm-watch-checkpoint.sh"
 TMP_ROOT=$(fm_test_tmproot fm-watch-checkpoint)
+# tests/lib.sh installs the global cleanup trap; repeat it here with the
+# interrupt and terminate forms so a killed checkpoint run still reaps the
+# processes it started under this suite's own temp root.
+trap fm_test_cleanup EXIT
+trap 'fm_test_cleanup; exit 130' INT
+trap 'fm_test_cleanup; exit 143' TERM
+trap 'fm_test_cleanup; exit 129' HUP
 
 make_home() {
   local name=$1 home

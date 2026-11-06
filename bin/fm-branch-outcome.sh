@@ -6,10 +6,22 @@
 #   - Store: $STATE/branch-outcomes.jsonl, strictly APPEND-ONLY. One JSON
 #     object per line: {"seq":N,"epoch":N,"task":"...","wake":"...",
 #     "verdict":"routine"|"captain","summary":"...","silent":true|false,
-#     "statusEndpoint":N,"statusIdent":"..."}. Legacy rows without `silent`
-#     or status provenance remain valid and are treated as visible. A silent
-#     row must have verdict `routine`; the branch prompt and delivery consumers
-#     own the additional no-change eligibility rule.
+#     "statusEndpoint":N,"statusIdent":"...","authority":"...",
+#     "authorityVerified":true|false}. Legacy rows without `silent`,
+#     status provenance, or the authority fields remain valid and are treated
+#     as visible and unverified. A new row always carries an authority string.
+#     `authorityVerified` is true only for one of the recognized shapes: a path
+#     plus revision (`path:<repo>@<rev>`, `file:<path>@<rev>`,
+#     `target:<home>@<rev>`), a forge response (`pr:<url>`, `api:<response>`),
+#     or command output (`command:<text>`). Anything else is stored with
+#     authorityVerified false rather than silently accepted as evidence.
+#     A summary that asserts merged, landed, or released work must name an
+#     authority read that supports it; a named commit that no readable
+#     repository holds, or a target revision that does not contain it, is
+#     refused before the store is touched (bin/fm-landed-work-lib.sh owns that
+#     verdict, and bin/fm-teardown.sh uses the same landed-work test).
+#     A silent row must have verdict `routine`; the branch prompt and delivery
+#     consumers own the additional no-change eligibility rule.
 #     Every read and append validates the complete log as a gap-free sequence;
 #     malformed, duplicate, or reordered rows fail closed.
 #     Existing lines are never rewritten, reordered, or deleted by any
@@ -77,8 +89,11 @@
 #
 # Usage:
 #   fm-branch-outcome.sh append --task <id> --verdict routine|captain \
-#       --summary <text> [--wake <text>] [--silent true|false]
-#     Append one outcome record; prints the assigned seq.
+#       --summary <text> [--authority <read>] [--wake <text>] \
+#       [--silent true|false]
+#     Append one outcome record; prints the assigned seq. --authority names the
+#     read that justified the verdict: a path plus revision, a PR or API
+#     response, or command output. Without it the row is stored unverified.
 #   fm-branch-outcome.sh unread
 #     Print every unread record (raw JSONL). Exit 0 with no output when none.
 #   fm-branch-outcome.sh mark-read --through <seq>
@@ -134,6 +149,13 @@
 #     row and byte budget and write the copy from them; otherwise read and
 #     change nothing. fm-session-start.sh runs it at every locked session
 #     start, on every harness and away posture, before the drain.
+#   fm-branch-outcome.sh audit
+#     Read-only audit of existing rows for verdicts with no verifiable
+#     authority read. It never rewrites history: it writes
+#     $STATE/branch-outcomes-authority-audit.txt with one marked line per
+#     captain-verdict or landing-claim row that lacks `authority` or carries
+#     authorityVerified false, then prints that file. Rows with a verified
+#     authority read are listed only as a count.
 set -eu
 
 SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
@@ -141,6 +163,10 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-landed-work-lib.sh
+. "$SCRIPT_DIR/fm-landed-work-lib.sh"
+# shellcheck source=bin/fm-authority-lib.sh
+. "$SCRIPT_DIR/fm-authority-lib.sh"
 
 STORE="$STATE/branch-outcomes.jsonl"
 CURSOR="$STATE/.branch-outcomes-cursor"
@@ -163,7 +189,7 @@ RECORDED_AGO_JQ='def recorded_ago: ([$now - .epoch, 0] | max) as $s
     else "\($s / 86400 | floor)d" end;'
 
 usage() {
-  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail" >&2
+  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--authority <read>] [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay | seed-tail | audit" >&2
   exit 2
 }
 
@@ -234,14 +260,28 @@ last_seq() { # [<file> [<first expected seq, or null for a bounded suffix>]]
   local file=${1:-$STORE} start=${2:-1}
   [ -s "$file" ] || { printf '0\n'; return 0; }
   jq -Rse --argjson start "$start" '
+    def allowed_keys: ["epoch", "seq", "silent", "statusEndpoint", "statusIdent", "summary", "task", "verdict", "wake", "authority", "authorityVerified"];
+    def required_keys: ["epoch", "seq", "summary", "task", "verdict", "wake"];
     def valid:
       type == "object"
+      and (((keys - allowed_keys) | length) == 0)
+      and (((required_keys - keys) | length) == 0)
       and (
-        keys == ["epoch", "seq", "summary", "task", "verdict", "wake"]
-        or (keys == ["epoch", "seq", "silent", "summary", "task", "verdict", "wake"] and (.silent | type) == "boolean")
+        (has("silent") | not)
+        or ((.silent | type) == "boolean")
+      )
+      and (
+        (has("authority") | not)
+        or ((.authority | type) == "string")
+      )
+      and (
+        (has("authorityVerified") | not)
+        or ((.authorityVerified | type) == "boolean")
+      )
+      and (
+        ((has("statusEndpoint") | not) and (has("statusIdent") | not))
         or (
-          keys == ["epoch", "seq", "silent", "statusEndpoint", "statusIdent", "summary", "task", "verdict", "wake"]
-          and (.silent | type) == "boolean"
+          has("statusEndpoint") and has("statusIdent")
           and ((.statusEndpoint | type) == "number" and .statusEndpoint >= 0 and .statusEndpoint <= 9007199254740991 and .statusEndpoint == (.statusEndpoint | floor))
           and ((.statusIdent | type) == "string" and (.statusIdent | test("[\\t\\n]") | not))
         )
@@ -503,11 +543,14 @@ case "$CMD" in
     SUMMARY=''
     WAKE=''
     SILENT=false
+    AUTHORITY=''
+    AUTHORITY_GIVEN=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --task) TASK=${2:-}; shift 2 || usage ;;
         --verdict) VERDICT=${2:-}; shift 2 || usage ;;
         --summary) SUMMARY=${2:-}; shift 2 || usage ;;
+        --authority) AUTHORITY=${2:-}; AUTHORITY_GIVEN=1; shift 2 || usage ;;
         --wake) WAKE=${2:-}; shift 2 || usage ;;
         --silent) SILENT=${2:-}; shift 2 || usage ;;
         *) usage ;;
@@ -521,6 +564,47 @@ case "$CMD" in
     if [ "$SILENT" = true ] && [ "$VERDICT" != routine ]; then
       echo "error: silent outcomes must have the routine verdict" >&2
       exit 2
+    fi
+    AUTHORITY_VERIFIED=false
+    if [ "$AUTHORITY_GIVEN" = 0 ]; then
+      AUTHORITY='unverified: no authority read supplied'
+    else
+      case "$AUTHORITY" in
+        path:*@?*|file:*@?*|target:*@?*|pr:?*|api:?*|command:?*|captain-answer:?*) AUTHORITY_VERIFIED=true ;;
+        *)
+          # Keep a caller-supplied but unrecognized read as an honest marked
+          # row rather than pretending it is grounded evidence.
+          AUTHORITY="unverified: ${AUTHORITY:-no authority read supplied}"
+          ;;
+      esac
+    fi
+    # A summary that cites a captain decision is itself an authority claim.
+    # It must name the durable captain-answer record that supports it, exactly
+    # as an outbound steer does; the transcript, mirror, and status log are not
+    # evidence. This closes the branch's own report path, not only the steer
+    # path that the 2026-09-09 incident used.
+    if fm_authority_text_claims_captain "$SUMMARY"; then
+      case "$AUTHORITY" in
+        captain-answer:?*)
+          captain_answer_id=${AUTHORITY#captain-answer:}
+          fm_authority_require_record "$captain_answer_id" "outcome report" || exit 3
+          ;;
+        *)
+          echo "REFUSED: summary cites a captain decision but carries no captain-answer authority read; pass --authority captain-answer:<task-id> for the durable answer bin/fm-captain-hold.sh recorded" >&2
+          exit 3
+          ;;
+      esac
+    fi
+    TASK_WORKTREE=''
+    TASK_PROJECT=''
+    TASK_PR=''
+    if [ -f "$STATE/$TASK.meta" ] && [ ! -L "$STATE/$TASK.meta" ]; then
+      TASK_WORKTREE=$(sed -n 's/^worktree=//p' "$STATE/$TASK.meta" | tail -1)
+      TASK_PROJECT=$(sed -n 's/^project=//p' "$STATE/$TASK.meta" | tail -1)
+      TASK_PR=$(sed -n 's/^pr=//p' "$STATE/$TASK.meta" | tail -1)
+    fi
+    if ! fm_landed_claim_check "$SUMMARY" "$AUTHORITY" "$TASK_WORKTREE" "$TASK_PROJECT" "$TASK_PR"; then
+      exit 3
     fi
     fm_lock_acquire_wait "$LOCK"
     if ! LAST_SEQ=$(last_seq); then
@@ -536,9 +620,10 @@ case "$CMD" in
     SEQ=$(( LAST_SEQ + 1 ))
     capture_status_position "$TASK"
     rm -f -- "$OUTCOME_INDEX_READY" || { fm_lock_release "$LOCK"; exit 1; }
-    printf '{"seq":%s,"epoch":%s,"task":"%s","wake":"%s","verdict":"%s","summary":"%s","silent":%s,"statusEndpoint":%s,"statusIdent":"%s"}\n' \
+    printf '{"seq":%s,"epoch":%s,"task":"%s","wake":"%s","verdict":"%s","summary":"%s","authority":"%s","authorityVerified":%s,"silent":%s,"statusEndpoint":%s,"statusIdent":"%s"}\n' \
       "$SEQ" "$(date +%s)" "$(json_escape "$TASK")" "$(json_escape "$WAKE")" \
-      "$VERDICT" "$(json_escape "$SUMMARY")" "$SILENT" "$CAPTURED_STATUS_ENDPOINT" \
+      "$VERDICT" "$(json_escape "$SUMMARY")" "$(json_escape "$AUTHORITY")" \
+      "$AUTHORITY_VERIFIED" "$SILENT" "$CAPTURED_STATUS_ENDPOINT" \
       "$(json_escape "$CAPTURED_STATUS_IDENT")" >> "$STORE"
     write_outcome_tail || echo "warning: outcome $SEQ was stored but its display tail copy could not be refreshed" >&2
     # A task with neither a live meta nor a status log is retired: the branch
@@ -807,6 +892,45 @@ case "$CMD" in
     fi
     rm -f -- "$WINDOW"
     fm_lock_release "$LOCK"
+    ;;
+  audit)
+    [ "$#" -eq 0 ] || usage
+    fm_lock_acquire_wait "$LOCK"
+    if ! last_seq >/dev/null; then
+      fm_lock_release "$LOCK"
+      echo "error: refusing audit because the outcome store is malformed or non-sequential" >&2
+      exit 1
+    fi
+    AUDIT_FILE="$STATE/branch-outcomes-authority-audit.txt"
+    AUDIT_TMP=$(mktemp "$STATE/.branch-outcomes-audit.XXXXXX") || { fm_lock_release "$LOCK"; exit 1; }
+    AUDIT_MARKED=0
+    if [ -s "$STORE" ]; then
+      AUDIT_MARKED=$(jq -r '
+        def landing_claim: .summary | test("(^|[^A-Za-z0-9_])(merged|landed|released)([^A-Za-z0-9_]|$)"; "i");
+        select((.authority // "") == "" or .authorityVerified == false)
+        | select(.verdict == "captain" or landing_claim)
+        | .seq
+      ' "$STORE" | wc -l | tr -d '[:space:]')
+    fi
+    {
+      printf '# branch-outcome authority audit generated=%s store=%s\n' "$(date +%s)" "$STORE"
+      printf '# format: seq<TAB>verdict<TAB>mark<TAB>task<TAB>summary\n'
+      if [ -s "$STORE" ]; then
+        jq -r '
+          def landing_claim: .summary | test("(^|[^A-Za-z0-9_])(merged|landed|released)([^A-Za-z0-9_]|$)"; "i");
+          select((.authority // "") == "" or .authorityVerified == false)
+          | select(.verdict == "captain" or landing_claim)
+          | [.seq, .verdict, (if landing_claim then "landing-claim-unverifiable" else "captain-verdict-unverified" end), .task, .summary]
+          | @tsv
+        ' "$STORE"
+      fi
+    } > "$AUDIT_TMP" || { rm -f -- "$AUDIT_TMP"; fm_lock_release "$LOCK"; exit 1; }
+    mv -f -- "$AUDIT_TMP" "$AUDIT_FILE" || { rm -f -- "$AUDIT_TMP"; fm_lock_release "$LOCK"; exit 1; }
+    fm_lock_release "$LOCK"
+    printf 'audited %s row(s) with unverifiable authority; marked %s captain-verdict or landing-claim row(s) in %s\n' \
+      "$(jq -s 'map(select((.authority // "") == "" or .authorityVerified == false)) | length' "$STORE" 2>/dev/null || printf 0)" \
+      "$AUDIT_MARKED" "$AUDIT_FILE"
+    cat "$AUDIT_FILE"
     ;;
   *) usage ;;
 esac

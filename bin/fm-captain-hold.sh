@@ -31,6 +31,7 @@
 #   fm-captain-hold.sh complete <origin-id> (--none | <task-id>...)
 #   fm-captain-hold.sh verify <origin-id>
 #   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent]
+#   fm-captain-hold.sh recorded-answer <task-id>
 #   fm-captain-hold.sh diverged
 #   fm-captain-hold.sh reconcile list
 #   fm-captain-hold.sh reconcile close <task-id> --evidence-file <path>
@@ -165,6 +166,16 @@
 # a single row still held for the captain; two such rows refuse rather than
 # attest, and `complete` names each prefix-resolved row beside its attested
 # legacy id so the guess stays auditable.
+#
+# `recorded-answer` is the read-only proof an outbound steer or branch action
+# asks before it may cite captain authority. It prints one line
+# `task=<id> mode=<answered|repaired|routed> digest=<sha256>` and exits 0 only
+# when the task's newest resolution record is a captain answer written by this
+# script's `answer`/`answers` path (or the pre-collapse equivalent). A
+# reconciliation record, an ordinary closed task, an absent task, and an
+# unreadable backlog all refuse: those are not the captain's words. This
+# subcommand mutates nothing and is the read side of the same owner that writes
+# the record.
 #
 # `open` is the read-only predicate a mechanical closer asks before it may
 # retire a task's row: is this task still an open captain call? Exit 0 means it
@@ -1972,6 +1983,28 @@ EOF
 # exist holds nothing. Every read failure over a record that DOES exist is a 2,
 # printed to stderr, because a mechanical closer must never read "cannot tell"
 # as permission to close.
+command_recorded_answer() {  # <task-id>
+  local id=${1:-} body mode digest
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  validate_slug task-id "$id"
+  require_tasks_axi
+  task_show "$id" || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  body=$(show_field "$TASK_SHOW_OUTPUT" body)
+  if ! body_has_resolution_record "$body"; then
+    fail "no captain answer on record for task $id"
+  fi
+  mode=$(recorded_resolution_mode "$body" || true)
+  case "$mode" in
+    answered|repaired|routed) ;;
+    *)
+      fail "no captain answer on record for task $id (newest resolution mode is ${mode:-unknown}, not a captain answer)"
+      ;;
+  esac
+  digest=$(recorded_decision_digest "$body" || true)
+  [ -n "$digest" ] || fail "captain answer record for task $id carries no decision digest"
+  printf 'task=%s mode=%s digest=%s\n' "$id" "$mode" "$digest"
+}
+
 command_open() {  # <task-id> [--identity] [--distinguish-absent]
   local id='' identity=0 distinguish_absent=0 data state root file backend show shown_body
   while [ "$#" -gt 0 ]; do
@@ -2049,6 +2082,7 @@ case "${1:-}" in
   complete) shift; command_complete "$@" ;;
   verify) shift; command_verify "$@" ;;
   open) shift; command_open "$@" ;;
+  recorded-answer) shift; command_recorded_answer "$@" ;;
   diverged) shift; command_diverged "$@" ;;
   reconcile) shift; command_reconcile "$@" ;;
   -h|--help) usage ;;

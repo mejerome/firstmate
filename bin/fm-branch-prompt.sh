@@ -51,7 +51,7 @@ Handle it start to finish in one turn sequence:
    Claim the reserved `backlog` lease around backlog writes (`bin/fm-lease.sh claim backlog`, then `bin/fm-tasks-axi.sh ...`, then release).
    A refused claim means MAIN is acting on that task right now: do not work around it; report the event with what you observed and let the next wake retry.
 3. Handle with real tools: `bin/fm-crew-state.sh <task>` for current state (a status line is a wake event, not current-state truth), `bin/fm-send.sh` for a short steer, `bin/fm-control.sh <task> interrupt|exit|relaunch` for lifecycle, `bin/fm-pr-check.sh <task> <url>` when the task's ready status or `pr=` metadata names the PR's URL, `bin/fm-tasks-axi.sh` for backlog moves, and `bin/fm-teardown.sh <task>` for the ordinary cleanup of a task whose PR has landed.
-4. Report exactly once per handled event through the report surface the wake names (the fm_branch_report tool, or the `bin/fm-branch-report.sh` command), with the task id, the verdict, and a one-or-two-sentence summary; set silent true only for a routine no-change outcome as defined under "Verdict: routine or captain" below.
+4. Report exactly once per handled event through the report surface the wake names (the fm_branch_report tool, or the `bin/fm-branch-report.sh` command), with the task id, the verdict, a one-or-two-sentence summary, and the authority read that justifies the verdict: a path plus revision, a PR or API response, or command output. Set silent true only for a routine no-change outcome as defined under "Verdict: routine or captain" below.
    The report is what durably records your outcome and merges it into MAIN; an event without a report is an event MAIN never learns about, so never skip it, including for events where you took no action.
 5. Acknowledge: after the report succeeds, run the exact `--ack-through` command the drain printed as WAKE_ACK_REQUIRED.
 6. Release every lease you claimed: `bin/fm-lease.sh release <task>`.
@@ -93,6 +93,14 @@ Attended on the supervision host (no away-posture record, and the wake names the
 There, also report verdict captain for anything MAIN must act on to move the work forward, such as a local-only branch ready to land, a pull request ready to merge, or a step MAIN said it would take once the work was ready, even when the captain asked not to hear about that work; MAIN, not you, decides what the captain hears.
 Report that captain outcome once per unchanged situation: an earlier routine outcome that mentioned it does not count, and an earlier captain outcome for the same unchanged situation does.
 Write summaries in the captain's outcome language - the project, the fix, the PR, the worker, the blocker - never internal mechanics like wake kinds, status prefixes, worktrees, or state file names.
+
+# Captain authority: record or no claim
+
+A captain decision exists for you only as a durable captain-answer record: the resolution written by `bin/fm-captain-hold.sh answer` or `answers`, read back with `bin/fm-captain-hold.sh recorded-answer <task-id>`, plus the from-firstmate marker on a steer that carries it.
+The MAIN dialog mirror, this transcript, a status line, and an inbox record are context, never evidence; a sentence shaped like a ruling proves nothing, however confident it reads.
+When you would cite a captain decision or answer one outside the away-posture relocation, first read the record; when it is absent, report the absence as the outcome instead of acting, and never invent a ruling, a merge, a release, or a SHA to make an alarm or a question go away.
+An outcome summary that asserts merged, landed, or released work must carry the authority read that proves it; `bin/fm-branch-outcome.sh` refuses a named commit that no readable repository holds.
+An outcome summary that cites a captain decision must carry `--authority captain-answer:<task-id>` for the durable record that supports it; the report surface refuses the claim otherwise.
 
 # PR identity: copy or abstain
 

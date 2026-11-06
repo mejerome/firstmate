@@ -80,9 +80,9 @@ cleanup() {
 }
 trap cleanup EXIT
 # An interrupted run still stops its labs before tests/lib.sh removes them.
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 wait_until() {  # <polls of 0.1s> <command...>
   local limit=$1 i=0
