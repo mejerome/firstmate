@@ -629,8 +629,16 @@ if [ "$extension_segment" = all ] || [ "$extension_segment" = coordinator ]; the
     fail "the section coordinator accepted a stalled child past its deadline"
   fi
   assert_present "$coordinator_ready" "the deadline probe did not start its stalled child"
-  if kill -0 "$(cat "$coordinator_pid")" 2>/dev/null; then
+  # A child that exited is not alive even where this init leaves it a zombie, so
+  # the check asks whether it still runs; where init does reap, the strict form
+  # below still requires the pid to be gone entirely.
+  coordinator_deadline_child=$(cat "$coordinator_pid")
+  if fm_test_process_running "$coordinator_deadline_child"; then
     fail "the coordinator left its deadline child alive"
+  fi
+  if fm_test_init_reaps_orphans "$TMP_ROOT"; then
+    kill -0 "$coordinator_deadline_child" 2>/dev/null \
+      && fail "the coordinator's deadline child exited but this init still answers for its pid"
   fi
   pass "the section coordinator propagates ordered failures and bounded cleanup"
   if [ "$extension_segment" = coordinator ]; then
