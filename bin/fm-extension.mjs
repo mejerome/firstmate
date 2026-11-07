@@ -55,7 +55,7 @@
 // mutation, or stronger-operation capability.
 
 import { spawn } from "node:child_process";
-import { constants as fsConstants, fstat, read } from "node:fs";
+import { constants as fsConstants, fstat, read, readdirSync, readFileSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -882,6 +882,28 @@ let cachedSelfIdentity = null;
 
 function groupAlive(pid) {
   if (!pid || process.platform === "win32") return false;
+  // A zombie still answers process.kill(-pid, 0), but it no longer belongs to
+  // a live process group. On Linux, scan /proc and exclude state Z so cleanup
+  // can retire a group even when no container init reaps its dead members.
+  if (process.platform === "linux") {
+    try {
+      for (const entry of readdirSync("/proc")) {
+        if (!/^\d+$/.test(entry)) continue;
+        let stat;
+        try {
+          stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+        } catch {
+          continue;
+        }
+        const after = stat.slice(stat.lastIndexOf(") ") + 2);
+        const fields = after.split(" ");
+        if (fields[0] !== "Z" && Number(fields[2]) === pid) return true;
+      }
+      return false;
+    } catch {
+      // Fall through to the signal probe when /proc cannot be read.
+    }
+  }
   try {
     process.kill(-pid, 0);
     return true;
