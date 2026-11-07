@@ -4597,8 +4597,8 @@ JS
   # assertions use. A bare glyph also matches the water rows that carry ╲ beside
   # the trough, so on some renders the first match was a water row: the blue
   # check passed against it and the yellow one then failed on the wrong line.
-  boat_color_line=$(grep -F '╲▁▁▁╱' "$boat_color_snapshot" | head -1)
-  boat_sail_line=$(grep -F '◿│◣' "$boat_color_snapshot" | head -1)
+  boat_color_line=$(grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' | head -1)
+  boat_sail_line=$(grep -F '◿│◣' "$boat_color_snapshot" | grep -F '[33m' | head -1)
   [ -n "$boat_color_line" ] || fail "could not capture a colored working-ship row"
   [ -n "$boat_sail_line" ] || fail "could not capture a colored working-ship sail"
   case "$boat_color_line" in

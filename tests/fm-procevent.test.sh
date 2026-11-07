@@ -22,6 +22,8 @@ export FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims"
 export LAVISH_AXI_STATE_DIR="$TMP_ROOT/lavish-state"
 mkdir -p "$LAVISH_AXI_STATE_DIR"
 
+if fm_test_reexec_unprivileged "$@"; then exit 0; fi
+
 # Lavish owns this persisted session contract. The fake CLI fixtures exercise
 # its published poll and synchronous reply command boundaries without starting a server.
 lavish_session() {  # <artifact> [session-url]

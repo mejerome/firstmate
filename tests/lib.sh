@@ -338,13 +338,13 @@ fm_test_selected() {  # <fixture>
   if [ -z "${FM_TEST_ONLY:-}" ]; then
     # Parent run: a fixture the unprivileged child already covered must not run
     # again here, where it would only report the capability skip.
-    case ",${FM_TEST_REEXEC_DONE:-}," in
-      *",$fixture,"*) return 1 ;;
+    case " ${FM_TEST_REEXEC_DONE:-} " in
+      *" $fixture "*) return 1 ;;
     esac
     return 0
   fi
-  case ",${FM_TEST_ONLY}," in
-    *",$fixture,"*) return 0 ;;
+  case " ${FM_TEST_ONLY} " in
+    *" $fixture "*) return 0 ;;
   esac
   return 1
 }
@@ -387,7 +387,7 @@ fm_test_reexec_unprivileged() {
   # machine's system configuration.
   local rc=0
   su "$user" -s /bin/bash -c \
-    "cd '$PWD' && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' \
+    "cd '$PWD' && unset FM_ROOT_OVERRIDE && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' \
      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$ROOT' \
      bash '$script'" || rc=$?
   if [ "$rc" -ne 0 ]; then

@@ -27,6 +27,15 @@ jobs:
       github.event.pull_request.user.login != 'github-actions[bot]' &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
+      - name: Ensure the attestation interpreter exists on a bare forge runner
+        run: |
+          set -eu
+          if command -v python >/dev/null 2>&1; then exit 0; fi
+          if ! command -v python3 >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y -qq python3
+          fi
+          ln -sf "$(command -v python3)" /usr/local/bin/python
       - name: Verify no-mistakes signature and pipeline attestation
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@f6441c96c352a18b9cadcaef6b6c7017e9ac3970 # v1.80.1
         with:

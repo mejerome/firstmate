@@ -3035,7 +3035,12 @@ test_a_persistent_secondmate_is_never_a_backlog_item() {
   pass "dispatching a persistent secondmate needs no backlog item"
 }
 
-test_backend_resolution_preserves_config_errors
+fm_test_reexec_unprivileged test_backend_resolution_preserves_config_errors
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  for selected_test in $FM_TEST_ONLY; do "$selected_test"; done
+  exit 0
+fi
+if fm_test_selected test_backend_resolution_preserves_config_errors; then test_backend_resolution_preserves_config_errors; fi
 test_backend_resolution_preserves_precedence_and_defaults
 test_backlog_callers_refuse_unreadable_backend_config
 test_captain_hold_preserves_relocated_backlog_on_backend_error

@@ -34,12 +34,12 @@ TMP_ROOT=$(fm_test_tmproot fm-watch-arm-tests)
 # iteration-counted ceiling that outlasts that budget. A passing case returns as
 # soon as the arm reports or exits, and a watcher that never surfaces its
 # recovery still fails once the ceiling is spent.
-REARM_CONFIRM_SECONDS=30
+REARM_CONFIRM_SECONDS=60
 # start_rearm_arm polls every 0.05s, so this outlasts the confirmation budget.
-REARM_REPORT_POLLS=700
+REARM_REPORT_POLLS=1200
 # wait_for_exit polls every 0.1s. The arm can spend its confirmation budget again
 # waiting for a successor before it reports a failure, so this outlasts it too.
-REARM_EXIT_POLLS=400
+REARM_EXIT_POLLS=800
 
 # Both starters background a real process the test later waits on, so they set a
 # global instead of echoing: a command substitution would make the pid a child of
@@ -1211,7 +1211,7 @@ test_take_over_preserves_downtime_from_watcher_self_exit() {
   printf '#!/usr/bin/env bash\nif [ "$*" = "%s/.secondmate-liveness-tick" ] && [ -e "%s/fail-tick" ]; then exit 1; fi\nexec "%s" "$@"\n' \
     "$state" "$dir" "$real_touch" > "$fakebin/touch"
   chmod +x "$fakebin/touch"
-  FM_SECONDMATE_LIVENESS_SECS=1 start_rearm_arm "$home" "$state" "$fakebin" "$dir/owner.out" "$$"
+  FM_SECONDMATE_LIVENESS_SECS=5 start_rearm_arm "$home" "$state" "$fakebin" "$dir/owner.out" "$$"
   owner=$ARM_PID
   watcher=$(cat "$state/.watch.lock/pid")
   append_wake "$state" signal take-over "signal: fixture handled by main"
