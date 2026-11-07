@@ -30,14 +30,14 @@ TMP_ROOT=$(fm_test_tmproot fm-calm-claude-mod)
 command -v node >/dev/null 2>&1 || { echo "skip: node not found for the Claude Code Calm mod checks"; exit 0; }
 
 run_node() {  # <script-file>
-  node --input-type=module <"$1"
+  timeout 300 node --input-type=module <"$1"
 }
 
 # js_string <value>: a JavaScript string literal for a shell value, for the
 # generated scripts below. ${value@Q} would need Bash 4.4 and yields shell
 # quoting; stock macOS Bash 3.2 reports a bad substitution.
 js_string() {  # <value>
-  node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' -- "$1"
+  timeout 300 node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' -- "$1"
 }
 
 test_plugin_shape() {

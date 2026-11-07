@@ -207,7 +207,17 @@ window_alive() {  # <name>
   [ "$(window_field "$1" '#{pane_dead}')" = 0 ]
 }
 
-pid_alive() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac; kill -0 "$1" 2>/dev/null; }
+# A host counts as live only while its process has not exited. A zombie still
+# answers kill -0, so an init that never reaps (act runs the job container under
+# `sleep`) would otherwise report a killed host as live; /proc is absent on
+# macOS, where kill -0 is the only answer.
+pid_alive() {
+  local pid=${1:-} state
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  state=$(sed -n 's/^[0-9][0-9]* (.*) \([A-Za-z]\).*$/\1/p' "/proc/$pid/stat" 2>/dev/null) || state=
+  [ "$state" != Z ]
+}
 
 fleet_nonempty() { [ "$WANT_MATE" = yes ] || [ "$WANT_WORKER" = yes ]; }
 

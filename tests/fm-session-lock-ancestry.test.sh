@@ -795,13 +795,19 @@ test_e2e_background_session_keeps_its_lock_across_a_recycled_chain() {
 
   # Phase 6: the front-end exits; the same session reclaims its dead anchor
   # onto the spare - the model-loop process - not onto the outermost pty-host.
+  # A zombie has exited and only waits for an init that reaps, so the wait asks
+  # whether the front-end still runs; where init does reap, the strict form below
+  # still requires the pid to be gone entirely.
   : > "$dir/state/stop-frontend"
   i=0
-  while [ "$i" -lt 200 ] && kill -0 "$frontend" 2>/dev/null; do
+  while [ "$i" -lt 200 ] && fm_test_process_running "$frontend"; do
     sleep 0.05
     i=$((i + 1))
   done
-  kill -0 "$frontend" 2>/dev/null && fail "the front-end did not exit"
+  fm_test_process_running "$frontend" && fail "the front-end did not exit"
+  if fm_test_init_reaps_orphans "$dir"; then
+    kill -0 "$frontend" 2>/dev/null && fail "the front-end exited but this init still answers for its pid"
+  fi
   fire_phase "$dir" 6 'export CLAUDE_CODE_SESSION_ID=S1; export CLAUDE_PID=$$'
   expect_phase_owned "$dir" 6 6 "$spare" "dead front-end, same session"
   [ "$spare" != "$ptyhost" ] || fail "fixture collapsed the spare into the pty-host"
@@ -1013,6 +1019,10 @@ SH
 # sidecar, not leave the new id beside the unclaimed pid.
 test_failed_lock_write_restores_previous_sidecar() {
   local dir stale_pid
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: failed-lock-write-restores-previous-sidecar needs a job user that mode bits deny\n'
+    return 0
+  fi
   dir="$TMP_ROOT/restore-sidecar"
   mkdir -p "$dir/state"
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
@@ -1053,6 +1063,10 @@ test_failed_lock_write_restores_previous_sidecar() {
 # behind; the lock stays ancestry-only.
 test_failed_lock_write_removes_new_sidecar_when_none_existed() {
   local dir
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: failed-lock-write-removes-new-sidecar needs a job user that mode bits deny\n'
+    return 0
+  fi
   dir="$TMP_ROOT/restore-absent-sidecar"
   mkdir -p "$dir/state"
   printf '1\n' > "$dir/state/.lock"
@@ -1099,19 +1113,20 @@ test_verified_reclaim_keeps_new_sidecar() {
   pass "session-lock: a verified reclaim keeps the new sidecar beside the new pid"
 }
 
-test_version_named_session_is_identified_on_both_platforms
-test_harness_at_namespace_pid1_is_examined
-test_ordinary_paths_are_never_harness_processes
-test_harness_beyond_a_gap_never_owns_the_lock
-test_competing_version_named_session_is_seen_as_live
-test_same_session_id_owns_a_recycled_background_chain
-test_anchor_pid_is_the_model_loop_process_only_for_a_trusted_id
-test_e2e_version_named_session_claims_the_home
-test_e2e_daemon_parented_session_claims_the_home
-test_e2e_daemon_parented_version_named_session_keeps_its_lock
-test_e2e_background_session_keeps_its_lock_across_a_recycled_chain
-test_same_session_confirmation_refreshes_rekeyed_id_under_claim_lock
-test_same_session_confirmation_does_not_steal_after_wait
-test_failed_lock_write_restores_previous_sidecar
-test_failed_lock_write_removes_new_sidecar_when_none_existed
-test_verified_reclaim_keeps_new_sidecar
+fm_test_reexec_unprivileged test_failed_lock_write_restores_previous_sidecar test_failed_lock_write_removes_new_sidecar_when_none_existed
+if fm_test_selected test_version_named_session_is_identified_on_both_platforms; then test_version_named_session_is_identified_on_both_platforms; fi
+if fm_test_selected test_harness_at_namespace_pid1_is_examined; then test_harness_at_namespace_pid1_is_examined; fi
+if fm_test_selected test_ordinary_paths_are_never_harness_processes; then test_ordinary_paths_are_never_harness_processes; fi
+if fm_test_selected test_harness_beyond_a_gap_never_owns_the_lock; then test_harness_beyond_a_gap_never_owns_the_lock; fi
+if fm_test_selected test_competing_version_named_session_is_seen_as_live; then test_competing_version_named_session_is_seen_as_live; fi
+if fm_test_selected test_same_session_id_owns_a_recycled_background_chain; then test_same_session_id_owns_a_recycled_background_chain; fi
+if fm_test_selected test_anchor_pid_is_the_model_loop_process_only_for_a_trusted_id; then test_anchor_pid_is_the_model_loop_process_only_for_a_trusted_id; fi
+if fm_test_selected test_e2e_version_named_session_claims_the_home; then test_e2e_version_named_session_claims_the_home; fi
+if fm_test_selected test_e2e_daemon_parented_session_claims_the_home; then test_e2e_daemon_parented_session_claims_the_home; fi
+if fm_test_selected test_e2e_daemon_parented_version_named_session_keeps_its_lock; then test_e2e_daemon_parented_version_named_session_keeps_its_lock; fi
+if fm_test_selected test_e2e_background_session_keeps_its_lock_across_a_recycled_chain; then test_e2e_background_session_keeps_its_lock_across_a_recycled_chain; fi
+if fm_test_selected test_same_session_confirmation_refreshes_rekeyed_id_under_claim_lock; then test_same_session_confirmation_refreshes_rekeyed_id_under_claim_lock; fi
+if fm_test_selected test_same_session_confirmation_does_not_steal_after_wait; then test_same_session_confirmation_does_not_steal_after_wait; fi
+if fm_test_selected test_failed_lock_write_restores_previous_sidecar; then test_failed_lock_write_restores_previous_sidecar; fi
+if fm_test_selected test_failed_lock_write_removes_new_sidecar_when_none_existed; then test_failed_lock_write_removes_new_sidecar_when_none_existed; fi
+if fm_test_selected test_verified_reclaim_keeps_new_sidecar; then test_verified_reclaim_keeps_new_sidecar; fi

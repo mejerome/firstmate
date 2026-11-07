@@ -216,7 +216,7 @@ test_home_resolution() {
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     OVERRIDE_HOME="$fixture/override" \
     EXTENSION_HOME="$fixture/project" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -340,7 +340,7 @@ test_pi_compat_degraded_adapter() {
   out=$(cd "$fixture/project" && \
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -511,7 +511,7 @@ SH
     FM_OPERATIONAL_INPUT_OWNER="$OPERATIONAL_INPUT" \
     FM_CLASSIFIER_DOWN="$fixture/classifier-down" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -825,7 +825,7 @@ test_builtin_gate_load_time() {
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     HOME_OFF="$fixture/home-off" \
     HOME_ON="$fixture/home-on" \
-    node --input-type=module) >"$output_file" 2>&1 <<'JS'
+    timeout 300 node --input-type=module) >"$output_file" 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 
 function fakePi() {
@@ -915,7 +915,7 @@ test_calm_activation_collision_and_regression_bound() {
     FOREIGN_EXT="$fixture/project/foreign-bash-extension.ts" \
     FM_HOME="$fixture/home" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module) >"$output_file" 2>&1 <<'JS'
+    timeout 300 node --input-type=module) >"$output_file" 2>&1 <<'JS'
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -2373,7 +2373,7 @@ TS
       fi
     fi
 
-    node - "$session_file" "$label" "$expected_notifications" <<'JS' \
+    timeout 300 node - "$session_file" "$label" "$expected_notifications" <<'JS' \
       || fail "Pi follow-up $label persisted the wrong turn or input semantics"
 const fs = require("node:fs");
 const [file, label, expectedRaw] = process.argv.slice(2);
@@ -2461,7 +2461,7 @@ JS
     geometry_gap=$((handled_line - captain_line))
     [ "$geometry_gap" -eq 2 ] \
       || fail "Pi restart replay consumed $geometry_gap rows between neighboring assistant text"
-    node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
+    timeout 300 node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const text = (content) => typeof content === "string"
@@ -2680,7 +2680,7 @@ TS
       session_file=$(find "$sessions/$label" -type f -name '*.jsonl' | head -1)
     fi
 
-    node - "$session_file" "$label" "$calm_state" <<'JS' || fail "Pi queued-row $label case persisted the wrong delivery"
+    timeout 300 node - "$session_file" "$label" "$calm_state" <<'JS' || fail "Pi queued-row $label case persisted the wrong delivery"
 const fs = require("node:fs");
 const [file, label, calm] = process.argv.slice(2);
 const entries = fs.readFileSync(file, "utf8").trim().split("\n").map(JSON.parse);
@@ -4322,7 +4322,7 @@ JSON
       || fail "current operational kind $kind did not retain user-role delivery while Calm was active"
     sleep 0.1
   done
-  node - "$session_file" <<'JS' || fail "native Pi did not preserve every exact current operational kind"
+  timeout 300 node - "$session_file" <<'JS' || fail "native Pi did not preserve every exact current operational kind"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const nativeSessionStart = entries.find((entry) =>
@@ -4394,7 +4394,7 @@ JS
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
   wait_for_text "$export_snapshot" "Session exported to: $export_file" \
     || fail "/export did not complete while calm mode was on"
-  node - "$export_file" <<'JS' || fail "calm-mode HTML export lost tool data or persisted synthetic provenance"
+  timeout 300 node - "$export_file" <<'JS' || fail "calm-mode HTML export lost tool data or persisted synthetic provenance"
 const html = require("node:fs").readFileSync(process.argv[2], "utf8");
 const match = html.match(/<script id="session-data" type="application\/json">([^<]+)<\/script>/);
 if (!match) process.exit(1);
@@ -4418,7 +4418,7 @@ JS
   # asks to show hidden messages. Pi 0.87 omitted those rows from the column
   # entirely. The boundary is the visible conversation: a synthetic row may
   # sit in a hidden hook message, and nowhere a reader sees by default.
-  node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
+  timeout 300 node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
 const dom = require("node:fs").readFileSync(process.argv[2], "utf8");
 const messages = dom.match(/<div id="messages">([\s\S]*?)<\/main>/)?.[1];
 const tree = dom.match(/<div[^>]*id="tree-container"[^>]*>([\s\S]*?)<div[^>]*id="tree-status"/)?.[1];
@@ -4577,6 +4577,9 @@ JS
     active_screen_wait=$((active_screen_wait + 1))
   done
   cp "$working_snapshot" "$boat_frame_one"
+  # Capture the colored frame at the same active moment as the plain frame;
+  # a later capture can land after the working run ends and lose the ship.
+  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
   assert_contains "$(cat "$boat_frame_one")" '╲▁▁▁╱' "Calm did not show the working ship during a real provider wait"
   assert_contains "$(cat "$boat_frame_one")" '◿│◣' "the working ship lost its centered asymmetric sail"
   assert_not_contains "$(cat "$boat_frame_one")" "Working" "Calm left Pi's stock working row visible while the ship was shown"
@@ -4592,9 +4595,12 @@ JS
     || fail "the working ship rendered no low waveform"
   # Standard ANSI colors: all water blue at every height, the whole hull and sail
   # yellow, no cyan crests or red sail half, and no RGB/256 escapes.
-  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
-  boat_color_line=$(grep -F '╲' "$boat_color_snapshot" | head -1)
-  boat_sail_line=$(grep -F '◿' "$boat_color_snapshot" | head -1)
+  # Capture the hull and sail rows by the same exact glyph runs the geometry
+  # assertions use. A bare glyph also matches the water rows that carry ╲ beside
+  # the trough, so on some renders the first match was a water row: the blue
+  # check passed against it and the yellow one then failed on the wrong line.
+  boat_color_line=$(grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' | head -1)
+  boat_sail_line=$(grep -F '◿│◣' "$boat_color_snapshot" | grep -F '[33m' | head -1)
   [ -n "$boat_color_line" ] || fail "could not capture a colored working-ship row"
   [ -n "$boat_sail_line" ] || fail "could not capture a colored working-ship sail"
   case "$boat_color_line" in

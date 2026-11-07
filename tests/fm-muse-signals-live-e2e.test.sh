@@ -28,7 +28,7 @@ pass() {
 }
 
 muse_prompt_glyph_is_bright() {  # <capture-path|--self-test>
-  node - "$1" <<'NODE'
+  timeout 300 node - "$1" <<'NODE'
 const fs = require("fs");
 
 function applySgr(foreground, raw) {
@@ -172,7 +172,7 @@ for _ in $(seq 1 300); do
 done
 [ "$RUN_STATE" = settled ] || fail "fm_busy_muse_run_state did not settle the real echo turn"
 
-node - "$SESSION_LOG" <<'NODE' || fail "real Muse did not emit exactly one matched started and terminal run pair"
+timeout 300 node - "$SESSION_LOG" <<'NODE' || fail "real Muse did not emit exactly one matched started and terminal run pair"
 const fs = require("fs");
 const records = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
 const lifecycle = records.filter((record) => record?.payload_type === "runtime.session" && record?.payload?.kind === "run" && ["started", "terminal"].includes(record?.payload?.event?.kind));

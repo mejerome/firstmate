@@ -74,7 +74,7 @@ test_identity_accepts_cursor_shapes_rejects_lookalikes() {
   printf '#!/bin/sh\nsleep 30\n' > "$impostor_dir/agent"; chmod +x "$impostor_dir/agent"
   "$impostor_dir/agent" & local impostor_pid=$!
   if command -v node >/dev/null 2>&1; then
-    node -e 'setTimeout(function(){}, 30000)' & real_node_pid=$!
+    timeout 300 node -e 'setTimeout(function(){}, 30000)' & real_node_pid=$!
     out=$(LC_ALL=C ps -p "$real_node_pid" -o comm= 2>/dev/null || true)
     if [ -n "$out" ]; then
       ! fm_cursor_process_matches "$out" '' "$out" \

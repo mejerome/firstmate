@@ -19,7 +19,7 @@ if [ ! -f "$PI_CODEX_NATIVE_PACKAGE/index.ts" ]; then
   exit 0
 fi
 export PI_CODEX_NATIVE_PACKAGE
-FM_NATIVE_TEST_ROOT="$ROOT" node --input-type=module <<'JS'
+FM_NATIVE_TEST_ROOT="$ROOT" timeout 300 node --input-type=module <<'JS'
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";

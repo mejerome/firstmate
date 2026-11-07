@@ -231,7 +231,7 @@ BUDGET=$(node -e 'const f=Number(process.argv[1]); console.log(Math.max(f * 4, f
 for arm in "idle:$IDLE_WORST" "delivering:$DELIVERY_WORST"; do
   label=${arm%%:*}
   worst=${arm#*:}
-  node -e 'process.exit(Number(process.argv[1]) <= Number(process.argv[2]) ? 0 : 1);' "$worst" "$BUDGET" \
+  timeout 300 node -e 'process.exit(Number(process.argv[1]) <= Number(process.argv[2]) ? 0 : 1);' "$worst" "$BUDGET" \
     || { printf '%s\n' "$IDLE_OUT" "$DELIVERY_OUT" >&2; fail "Pi $PI_VERSION froze for ${worst} ms while $label with the supervision extension loaded (budget ${BUDGET} ms from a ${FLOOR_WORST} ms unloaded floor): the delivery path is blocking the TUI again"; }
 done
 

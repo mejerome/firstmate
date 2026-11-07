@@ -216,7 +216,10 @@ install_hooks() {
     echo "error: worktree is not a directory: $wt" >&2
     return 1
   }
-  git -C "$wt" rev-parse --is-inside-work-tree >/dev/null || {
+  # A project core.hooksPath that git cannot expand must not make install
+  # refuse the worktree before the strip can be installed. Reading the
+  # repository-format key proves a git repository without expanding hooksPath.
+  git -C "$wt" config --get core.repositoryformatversion >/dev/null || {
     echo "error: not a git worktree: $wt" >&2
     return 1
   }

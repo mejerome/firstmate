@@ -3909,10 +3909,22 @@ test_a_retained_refusal_repeats_its_wake_rather_than_a_new_one() {
   pass "a refusal whose event was retained repeats its wake instead of a new one"
 }
 
+# Root jobs run the permission-refusal fixtures as the unprivileged image user;
+# the parent then skips those fixtures and keeps the rest of the file's coverage.
+# The helper's selected-test list is a space-separated set, so the child below
+# runs each selected function by name.
+fm_test_reexec_unprivileged \
+  test_remote_retire_refuses_unreadable_state \
+  test_remote_retire_refuses_nonwritable_state \
+  test_remote_collection_refuses_unreadable_outbox \
+  test_rejection_wake_survives_a_poll_that_cannot_read \
+  test_an_undroppable_wake_repeats_the_same_refusal \
+  test_a_retained_refusal_repeats_its_wake_rather_than_a_new_one
+
 # CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the bash-3.2 empty-lock
 # register regression. The rest of this file is not a 3.2 snapshot suite.
 if [ -n "${FM_TEST_ONLY:-}" ]; then
-  "$FM_TEST_ONLY"
+  for selected_test in $FM_TEST_ONLY; do "$selected_test"; done
   exit 0
 fi
 
@@ -3975,15 +3987,15 @@ test_remote_secondmate_loop_delivers_and_retires
 test_delivered_remote_registration_skips_offline_route
 test_remote_retire_force_semantics_unchanged
 test_remote_retire_refuses_reassigned_route
-test_remote_retire_refuses_unreadable_state
-test_remote_retire_refuses_nonwritable_state
+if fm_test_selected test_remote_retire_refuses_unreadable_state; then test_remote_retire_refuses_unreadable_state; fi
+if fm_test_selected test_remote_retire_refuses_nonwritable_state; then test_remote_retire_refuses_nonwritable_state; fi
 test_remote_retire_accepts_nonwritable_absence
 test_remote_retire_refuses_unacquirable_lock_without_hanging
 test_remote_unconfirmed_clear_is_unknown_completion
 test_remote_work_home_emit_reaches_owning_home
 test_remote_promise_without_deliverables_is_briefable
 test_remote_collection_transport_failure_is_loud
-test_remote_collection_refuses_unreadable_outbox
+if fm_test_selected test_remote_collection_refuses_unreadable_outbox; then test_remote_collection_refuses_unreadable_outbox; fi
 test_invalid_registration_fails_remote_collection
 test_unsafe_registration_entry_fails_remote_collection
 test_remote_route_loss_fails_brief_and_collection
@@ -4003,6 +4015,6 @@ test_emit_requires_promised_deliverable_under_any_successful_outcome
 test_emit_requires_error_code_on_a_failure_promise
 test_rejection_is_retried_until_its_wake_is_recorded
 test_rejection_wake_survives_a_poll_that_cannot_write
-test_rejection_wake_survives_a_poll_that_cannot_read
-test_an_undroppable_wake_repeats_the_same_refusal
-test_a_retained_refusal_repeats_its_wake_rather_than_a_new_one
+if fm_test_selected test_rejection_wake_survives_a_poll_that_cannot_read; then test_rejection_wake_survives_a_poll_that_cannot_read; fi
+if fm_test_selected test_an_undroppable_wake_repeats_the_same_refusal; then test_an_undroppable_wake_repeats_the_same_refusal; fi
+if fm_test_selected test_a_retained_refusal_repeats_its_wake_rather_than_a_new_one; then test_a_retained_refusal_repeats_its_wake_rather_than_a_new_one; fi

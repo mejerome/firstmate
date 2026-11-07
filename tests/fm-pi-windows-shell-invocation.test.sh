@@ -51,7 +51,7 @@ log="$project/state/calls"
 out=$(EXT="$project/.pi/extensions/fm-primary-turnend-guard.ts" \
   FM_HOME="$project" FM_ROOT_OVERRIDE="$project" FM_WINDOWS_SHELL_LOG="$log" \
   FM_OPERATIONAL_INPUT_SCRIPT="$project/bin/fm-operational-input.sh" \
-  node --input-type=module 2>&1 <<'JS'
+  timeout 300 node --input-type=module 2>&1 <<'JS'
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

@@ -59,11 +59,11 @@ TMP_ROOT=$(fm_test_tmproot fm-agy-harness)
 # The store is agy's own persisted settings JSON, so trust is asserted against
 # the parsed trustedWorkspaces array and preservation against parsed values.
 agy_trusted_paths() {  # <store>
-  node -e 'const fs=require("node:fs");const j=fs.existsSync(process.argv[1])?JSON.parse(fs.readFileSync(process.argv[1],"utf8")):{};for(const p of (j.trustedWorkspaces||[]))console.log(p);' "$1"
+  timeout 300 node -e 'const fs=require("node:fs");const j=fs.existsSync(process.argv[1])?JSON.parse(fs.readFileSync(process.argv[1],"utf8")):{};for(const p of (j.trustedWorkspaces||[]))console.log(p);' "$1"
 }
 
 agy_store_value() {  # <store> <key>
-  node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify(j[process.argv[2]]));' "$1" "$2"
+  timeout 300 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));console.log(JSON.stringify(j[process.argv[2]]));' "$1" "$2"
 }
 
 assert_agy_trusted() {  # <store> <path> <msg>

@@ -3741,13 +3741,13 @@ test_leaked_worktree_process_is_reaped() {
   pid=$!
   disown
   sleep 0.3
-  kill -0 "$pid" 2>/dev/null || fail "leaked-process-reap: setup sleeper did not start"
+  fm_test_process_running "$pid" || fail "leaked-process-reap: setup sleeper did not start"
 
   rc=0
   run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 0 "$rc" "leaked-process-reap: teardown should still succeed"
-  if kill -0 "$pid" 2>/dev/null; then
+  if fm_test_process_running "$pid"; then
     kill -KILL "$pid" 2>/dev/null || true
     fail "leaked-process-reap: leaked worktree process survived teardown"
   fi
@@ -3768,13 +3768,13 @@ test_leaked_tasktmp_process_is_reaped() {
   pid=$!
   disown
   sleep 0.3
-  kill -0 "$pid" 2>/dev/null || fail "leaked-tasktmp-reap: setup sleeper did not start"
+  fm_test_process_running "$pid" || fail "leaked-tasktmp-reap: setup sleeper did not start"
 
   rc=0
   run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 0 "$rc" "leaked-tasktmp-reap: teardown should still succeed"
-  if kill -0 "$pid" 2>/dev/null; then
+  if fm_test_process_running "$pid"; then
     kill -KILL "$pid" 2>/dev/null || true
     fail "leaked-tasktmp-reap: leaked tasktmp process survived teardown"
   fi
@@ -3796,7 +3796,7 @@ test_lsof_absent_reaps_tmux_process_group() {
   pid=$!
   disown
   sleep 0.3
-  kill -0 "$pid" 2>/dev/null || fail "lsof-absent-process-group-reap: setup sleeper did not start"
+  fm_test_process_running "$pid" || fail "lsof-absent-process-group-reap: setup sleeper did not start"
   cat > "$case_dir/fakebin/tmux" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = display-message ] && [ "\${*: -1}" = '#{pane_pid}' ]; then
@@ -3811,7 +3811,7 @@ EOF
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 0 "$rc" "lsof-absent-process-group-reap: teardown should succeed"
-  if kill -0 "$pid" 2>/dev/null; then
+  if fm_test_process_running "$pid"; then
     kill -KILL "$pid" 2>/dev/null || true
     fail "lsof-absent-process-group-reap: tmux process group survived teardown"
   fi

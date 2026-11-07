@@ -223,23 +223,36 @@ test_ci_matrices_match_executable_partitions() {
   ruby -ryaml -ropen3 - "$CI_WORKFLOW" "$ROOT" <<'RUBY' || fail "CI partition contract"
 jobs = YAML.load_file(ARGV[0]).fetch("jobs")
 root = ARGV[1]
-serial = jobs.fetch("tests-portable-serial").fetch("strategy")
-raise "serial failures must not cancel other shards" unless serial.fetch("fail-fast") == false
-matrix = serial.fetch("matrix")
-raise "unexpected serial dimensions" unless matrix.keys == ["shard"]
-shards = matrix.fetch("shard")
+
+# Every matrix carries its own explicit total per entry instead of
+# strategy.job-total, which a forge may leave empty; a matrix consumer that read
+# it would hand the runner a name such as "2of" or "portable-serial-1of".
+def matrix_entries(job, label)
+  strategy = job.fetch("strategy")
+  raise "#{label} failures must not cancel another entry" unless strategy.fetch("fail-fast") == false
+  matrix = strategy.fetch("matrix")
+  raise "#{label} matrix must be an explicit include list, got #{matrix.keys.inspect}" unless matrix.keys == ["include"]
+  entries = matrix.fetch("include")
+  raise "#{label} matrix carries no entries" if entries.empty?
+  entries
+end
+
+serial_entries = matrix_entries(jobs.fetch("tests-portable-serial"), "serial")
+serial_entries.each do |entry|
+  raise "a serial entry must carry shard and shards, got #{entry.keys.inspect}" unless entry.keys.sort == %w[shard shards]
+end
 lanes, status = Open3.capture2(File.join(root, "bin/fm-test-run.sh"), "--list-lanes")
 raise "cannot list runner lanes" unless status.success?
 actual = lanes.lines.map(&:strip).select { |l| l.match?(/\Aportable-serial-\d+of\d+\z/) }
-expected = shards.map { |s| "portable-serial-#{s}of#{shards.length}" }
-raise "CI matrix and runner disagree" unless actual.sort == expected.sort
-lint = jobs.fetch("lint").fetch("strategy")
-raise "lint failures must not cancel another partition" unless lint.fetch("fail-fast") == false
-matrix = lint.fetch("matrix")
-raise "unexpected lint dimensions" unless matrix.keys == ["partition"]
-parts = matrix.fetch("partition")
-roots = parts.flat_map do |p|
-  output, result = Open3.capture2(File.join(root, "bin/fm-lint.sh"), "--partition", "#{p}of#{parts.length}", "--list-files")
+expected = serial_entries.map { |e| "portable-serial-#{e.fetch('shard')}of#{e.fetch('shards')}" }
+raise "CI matrix and runner disagree: #{expected.sort.inspect} vs #{actual.sort.inspect}" unless actual.sort == expected.sort
+
+lint_entries = matrix_entries(jobs.fetch("lint"), "lint")
+lint_entries.each do |entry|
+  raise "a lint entry must carry partition and partitions, got #{entry.keys.inspect}" unless entry.keys.sort == %w[partition partitions]
+end
+roots = lint_entries.flat_map do |entry|
+  output, result = Open3.capture2(File.join(root, "bin/fm-lint.sh"), "--partition", "#{entry.fetch('partition')}of#{entry.fetch('partitions')}", "--list-files")
   raise "unsupported lint partition" unless result.success?
   output.lines.map(&:strip)
 end
@@ -249,7 +262,70 @@ RUBY
   pass "CI matrices cover every executable serial lane and canonical lint root exactly once"
 }
 
+# strategy.job-total is empty on a forge whose expression context omits it, so
+# no value in the workflow may read it: each matrix carries its own total.
+test_no_value_reads_job_total() {
+  ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "the workflow still reads strategy.job-total"
+require "json"
+doc = YAML.load_file(ARGV[0])
+offenders = []
+walk = lambda do |node, path|
+  case node
+  when Hash then node.each { |k, v| walk.call(v, "#{path}.#{k}") }
+  when Array then node.each_with_index { |v, i| walk.call(v, "#{path}[#{i}]") }
+  when String then offenders << path if node.include?("strategy.job-total")
+  end
+end
+walk.call(doc.fetch("jobs"), "jobs")
+raise "these values read strategy.job-total: #{offenders.join(', ')}" unless offenders.empty?
+RUBY
+  pass "no ci.yml matrix consumer reads strategy.job-total"
+}
+
+# Artifacts are diagnostics, never a gate: a forge without the artifact v2
+# service rejects upload/download-artifact@v4 outright and would fail the job
+# that owns the diagnostics, so every artifact step carries the discriminator.
+test_artifact_steps_skip_on_a_forge_without_the_artifact_service() {
+  ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "artifact guard contract"
+doc = YAML.load_file(ARGV[0])
+offenders = []
+doc.fetch("jobs").each do |job_name, job|
+  (job["steps"] || []).each do |step|
+    uses = step["uses"].to_s
+    next unless uses.start_with?("actions/upload-artifact", "actions/download-artifact")
+    guard = step["if"].to_s
+    next if guard.include?("github.server_url == 'https://github.com'")
+    offenders << "#{job_name} (#{uses}, if: #{guard.inspect})"
+  end
+end
+raise "these artifact steps do not skip on a forge without the artifact service: #{offenders.join('; ')}" unless offenders.empty?
+RUBY
+  pass "every artifact step skips on a forge without the artifact service"
+}
+
+# A bare runner image can lack tools the suite names. One shared installer must
+# cover every job that runs repo tooling, so no job copies its own installer.
+test_every_tooling_job_installs_the_shared_prerequisites() {
+  ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "prerequisite step contract"
+doc = YAML.load_file(ARGV[0])
+jobs = doc.fetch("jobs")
+tooling = %w[lint test-coverage tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial tests-herdr tests-timing-aggregate]
+missing = tooling.reject do |name|
+  (jobs.fetch(name)["steps"] || []).any? { |step| step["run"].to_s.include?("bin/fm-ci-prerequisites.sh") }
+end
+raise "these jobs do not install the shared CI prerequisites: #{missing.join(', ')}" unless missing.empty?
+copied = jobs.flat_map { |name, job| (job["steps"] || []).map { |s| [name, s["run"].to_s] } }
+             .select { |_name, run| run.include?("apt-get install") }
+             .map(&:first)
+raise "these jobs install packages themselves instead of using the shared installer: #{copied.uniq.join(', ')}" unless copied.empty?
+RUBY
+  pass "every tooling job installs the shared CI prerequisites"
+}
+
 test_ci_matrices_match_executable_partitions
+test_no_value_reads_job_total
+test_artifact_steps_skip_on_a_forge_without_the_artifact_service
+test_every_tooling_job_installs_the_shared_prerequisites
 test_pr_pushes_supersede_within_one_pr
 test_separate_prs_do_not_cancel_each_other
 test_main_pushes_are_never_cancelled

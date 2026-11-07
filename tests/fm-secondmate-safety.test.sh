@@ -3022,12 +3022,26 @@ EOF
   pass "fm-backlog-handoff refuses Done items under whitespace section headings and unsafe homes"
 }
 
+# Root jobs run the permission-refusal fixtures as the unprivileged image user;
+# the parent then skips those fixtures and keeps the rest of the file's coverage.
+# The helper's selected-test list is a space-separated set, so the child below
+# runs each selected function by name.
+fm_test_reexec_unprivileged \
+  test_home_seed_refuses_unreadable_registry \
+  test_home_seed_refuses_projectless_home_with_uninspectable_projects \
+  test_home_seed_refuses_projectless_home_with_uninspectable_registry
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  for selected_test in $FM_TEST_ONLY; do "$selected_test"; done
+  exit 0
+fi
+
 test_fm_home_parameterization
 test_lock_status_is_per_home
 test_seed_allows_overlapping_clones_and_drops_owner
 test_home_seed_validate_rejects_unparseable_registry_entry
 test_home_seed_refuses_broken_registry_symlink
-test_home_seed_refuses_unreadable_registry
+if fm_test_selected test_home_seed_refuses_unreadable_registry; then test_home_seed_refuses_unreadable_registry; fi
 test_home_seed_validate_rejects_duplicate_homes
 test_home_seed_validate_rejects_duplicate_ids
 test_home_seed_validate_rejects_nested_homes
@@ -3044,10 +3058,10 @@ test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home
 test_home_seed_refuses_projectless_conversion_of_populated_home
-test_home_seed_refuses_projectless_home_with_uninspectable_projects
+if fm_test_selected test_home_seed_refuses_projectless_home_with_uninspectable_projects; then test_home_seed_refuses_projectless_home_with_uninspectable_projects; fi
 test_home_seed_refuses_projectless_home_with_symlinked_projects
 test_home_seed_refuses_projectless_home_with_non_directory_projects
-test_home_seed_refuses_projectless_home_with_uninspectable_registry
+if fm_test_selected test_home_seed_refuses_projectless_home_with_uninspectable_registry; then test_home_seed_refuses_projectless_home_with_uninspectable_registry; fi
 test_home_seed_refuses_missing_projects_without_signal
 test_home_seed_refuses_local_only_project
 test_home_seed_refuses_an_unresolvable_registry_posture

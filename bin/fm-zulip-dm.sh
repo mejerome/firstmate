@@ -79,8 +79,7 @@ fi
 
 umask 077
 cf=$(mktemp); bf=$(mktemp)
-cleanup() { rm -f "$cf" "$bf"; }
-trap cleanup EXIT
+trap 'rm -f "$cf" "$bf"' EXIT
 
 printf 'user = "%s:%s"\n' "$SENDER" "$KEY" > "$cf"
 printf '%s' "$BODY" > "$bf"

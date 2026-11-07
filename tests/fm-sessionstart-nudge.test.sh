@@ -172,7 +172,7 @@ test_opencode_plugin_delivers_exact_nudge_once() {
     "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
   chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   out=$(PLUGIN="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js" \
-    WORKTREE="$root" EXPECTED="$NUDGE_LINE" node --input-type=module 2>&1 <<'EOF'
+    WORKTREE="$root" EXPECTED="$NUDGE_LINE" timeout 300 node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const prompts = [];
@@ -268,7 +268,7 @@ test_run_clear_and_compact_reemit() {
     expect_code 0 "$status" "run wrapper $source"
     assert_contains "$out" "$REEMIT_BANNER$root" "$source did not re-emit the digest"
     assert_contains "$out" "are NOT repeated" "$source did not report the skipped startup sweeps"
-    assert_contains "$out" "Queued wakes ARE still drained" "$source did not preserve the wake-queue drain"
+    assert_contains "$out" "queued wakes ARE still drained" "$source did not preserve the wake-queue drain"
     assert_not_contains "$out" "FIRSTMATE_OP" "a $source open also emitted the nudge instruction"
   done
   pass "run wrapper: clear and compact re-emit the digest without repeating startup sweeps"
@@ -385,7 +385,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const pi = {
@@ -548,7 +548,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import {
   existsSync,
   readFileSync,
@@ -815,7 +815,7 @@ SH
     local home=$1 expect=$2 case_out
     case_out=$(EXT="$home/.pi/extensions/fm-primary-turnend-guard.ts" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$home" EXPECT="$expect" \
-      node --input-type=module 2>&1 <<'JS'
+      timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
@@ -894,7 +894,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -1017,7 +1017,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" FM_GATE_REFUSE_BYPASS=1 \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const pi = {
@@ -1143,6 +1143,10 @@ test_run_creates_missing_state_on_a_fresh_primary() {
 
 test_run_reports_a_state_dir_it_cannot_create() {
   local root="$TMP_ROOT/run-fresh-readonly" out err_file="$TMP_ROOT/run-fresh-readonly.err" status=0
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: run-reports-a-state-dir-it-cannot-create needs a job user that mode bits deny\n'
+    return 0
+  fi
   make_run_primary "$root"
   rmdir "$root/state"
   chmod 0500 "$root"
@@ -1160,6 +1164,10 @@ test_run_reports_a_state_dir_it_cannot_create() {
 
 test_run_reports_a_failed_session_start_as_digest_text() {
   local root="$TMP_ROOT/run-unwritable" out status=0
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: run-reports-a-failed-session-start-as-digest-text needs a job user that mode bits deny\n'
+    return 0
+  fi
   make_run_primary "$root"
   chmod 0500 "$root/state"
   out=$(run_hook "$root" --source startup </dev/null) || status=$?
@@ -1169,30 +1177,31 @@ test_run_reports_a_failed_session_start_as_digest_text() {
   pass "run wrapper: a session start that cannot take the lock still opens the session and says so"
 }
 
-test_genuine_primary_nudges
-test_gate_env_is_silent
-test_gate_common_dir_is_silent
-test_unmarked_linked_worktree_is_silent
-test_linked_secondmate_primary_nudges
-test_missing_state_is_silent
-test_owned_lock_is_silent
-test_namespace_pid1_lock_holder_is_silent
-test_opencode_plugin_delivers_exact_nudge_once
-test_run_startup_runs_the_full_digest
-test_run_clear_and_compact_reemit
-test_run_rebuild_forwards_source_to_drifted_instruction_refresh
-test_run_compact_without_completion_refreshes_before_finishing_startup
-test_run_clear_without_completion_finishes_startup
-test_run_clear_rejects_previous_owner_completion
-test_run_resume_delegates_to_the_nudge
-test_run_reads_source_from_the_hook_payload
-test_run_unknown_source_takes_the_helm
-test_run_gate_and_scope_are_silent
-test_run_creates_missing_state_on_a_fresh_primary
-test_run_reports_a_state_dir_it_cannot_create
-test_run_reports_a_failed_session_start_as_digest_text
-test_pi_startup_classifies_cli_continuations
-test_pi_sessionstart_generation_prerequisite
-test_pi_secondmate_home_suppresses_sessionstart_digest
-test_pi_reload_releases_sessionstart_exit_listener
-test_pi_large_sessionstart_digest_is_delivered_loudly
+fm_test_reexec_unprivileged test_run_reports_a_state_dir_it_cannot_create test_run_reports_a_failed_session_start_as_digest_text
+if fm_test_selected test_genuine_primary_nudges; then test_genuine_primary_nudges; fi
+if fm_test_selected test_gate_env_is_silent; then test_gate_env_is_silent; fi
+if fm_test_selected test_gate_common_dir_is_silent; then test_gate_common_dir_is_silent; fi
+if fm_test_selected test_unmarked_linked_worktree_is_silent; then test_unmarked_linked_worktree_is_silent; fi
+if fm_test_selected test_linked_secondmate_primary_nudges; then test_linked_secondmate_primary_nudges; fi
+if fm_test_selected test_missing_state_is_silent; then test_missing_state_is_silent; fi
+if fm_test_selected test_owned_lock_is_silent; then test_owned_lock_is_silent; fi
+if fm_test_selected test_namespace_pid1_lock_holder_is_silent; then test_namespace_pid1_lock_holder_is_silent; fi
+if fm_test_selected test_opencode_plugin_delivers_exact_nudge_once; then test_opencode_plugin_delivers_exact_nudge_once; fi
+if fm_test_selected test_run_startup_runs_the_full_digest; then test_run_startup_runs_the_full_digest; fi
+if fm_test_selected test_run_clear_and_compact_reemit; then test_run_clear_and_compact_reemit; fi
+if fm_test_selected test_run_rebuild_forwards_source_to_drifted_instruction_refresh; then test_run_rebuild_forwards_source_to_drifted_instruction_refresh; fi
+if fm_test_selected test_run_compact_without_completion_refreshes_before_finishing_startup; then test_run_compact_without_completion_refreshes_before_finishing_startup; fi
+if fm_test_selected test_run_clear_without_completion_finishes_startup; then test_run_clear_without_completion_finishes_startup; fi
+if fm_test_selected test_run_clear_rejects_previous_owner_completion; then test_run_clear_rejects_previous_owner_completion; fi
+if fm_test_selected test_run_resume_delegates_to_the_nudge; then test_run_resume_delegates_to_the_nudge; fi
+if fm_test_selected test_run_reads_source_from_the_hook_payload; then test_run_reads_source_from_the_hook_payload; fi
+if fm_test_selected test_run_unknown_source_takes_the_helm; then test_run_unknown_source_takes_the_helm; fi
+if fm_test_selected test_run_gate_and_scope_are_silent; then test_run_gate_and_scope_are_silent; fi
+if fm_test_selected test_run_creates_missing_state_on_a_fresh_primary; then test_run_creates_missing_state_on_a_fresh_primary; fi
+if fm_test_selected test_run_reports_a_state_dir_it_cannot_create; then test_run_reports_a_state_dir_it_cannot_create; fi
+if fm_test_selected test_run_reports_a_failed_session_start_as_digest_text; then test_run_reports_a_failed_session_start_as_digest_text; fi
+if fm_test_selected test_pi_startup_classifies_cli_continuations; then test_pi_startup_classifies_cli_continuations; fi
+if fm_test_selected test_pi_sessionstart_generation_prerequisite; then test_pi_sessionstart_generation_prerequisite; fi
+if fm_test_selected test_pi_secondmate_home_suppresses_sessionstart_digest; then test_pi_secondmate_home_suppresses_sessionstart_digest; fi
+if fm_test_selected test_pi_reload_releases_sessionstart_exit_listener; then test_pi_reload_releases_sessionstart_exit_listener; fi
+if fm_test_selected test_pi_large_sessionstart_digest_is_delivered_loudly; then test_pi_large_sessionstart_digest_is_delivered_loudly; fi

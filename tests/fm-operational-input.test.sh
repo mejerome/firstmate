@@ -133,7 +133,7 @@ EOF
 test_cross_language_adapter_uses_the_owner() {
   local encoded parsed
   encoded=$(FM_TEST_ROOT="$ROOT" HELPER="$ROOT/.opencode/plugins/lib/fm-operational-input.js" \
-    node --input-type=module <<'JS'
+    timeout 300 node --input-type=module <<'JS'
 import { pathToFileURL } from "node:url";
 const { encodeFirstmateOperationalInput } = await import(pathToFileURL(process.env.HELPER).href);
 process.stdout.write(await encodeFirstmateOperationalInput(process.env.FM_TEST_ROOT, "watcher", "CROSS_LANGUAGE_BODY"));

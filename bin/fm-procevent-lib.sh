@@ -710,7 +710,11 @@ fm_procevent_claim_capture_reservation_reclaim_locked() {
 # group may be reused, so group presence prevents proving the generation gone.
 fm_procevent_group_alive() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  kill -0 -"$1" 2>/dev/null
+  # A zombie still answers `kill -0 -PID`, but it no longer belongs to a live
+  # process group. Exclude zombie members so a dead runner can be retired after
+  # TERM/KILL even when no container init reaps it.
+  LC_ALL=C ps -eo pid=,pgid=,stat= 2>/dev/null \
+    | awk -v pg="$1" '$2 == pg && $3 !~ /^Z/ { found=1 } END { exit !found }'
 }
 
 # fm_procevent_pid_state <pid> <identity>

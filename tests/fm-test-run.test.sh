@@ -1491,11 +1491,11 @@ SH
   [ -s "$grandchild_pid" ] || fail "the hanging fixture did not record its grandchild"
   grandchild=$(cat "$grandchild_pid")
   waited=0
-  while kill -0 "$grandchild" 2>/dev/null && [ "$waited" -lt 50 ]; do
+  while fm_test_process_running "$grandchild" && [ "$waited" -lt 50 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  if kill -0 "$grandchild" 2>/dev/null; then
+  if fm_test_process_running "$grandchild"; then
     kill -KILL "$grandchild" 2>/dev/null || true
     fail "the timed-out script left grandchild $grandchild running"
   fi

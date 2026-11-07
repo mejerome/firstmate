@@ -593,13 +593,24 @@ EOF
   pass "session-start digest renders data/captain-shared.md with the shared read-only label"
 }
 
-test_first_copy_readonly_and_local_files_preserved
+# Root jobs run the permission-refusal fixtures as the unprivileged image user;
+# the parent then skips those fixtures and keeps the rest of the file's coverage.
+fm_test_reexec_unprivileged \
+  test_first_copy_readonly_and_local_files_preserved \
+  test_unsafe_artifacts_and_failure_restore_readonly_mode
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  for selected_test in $FM_TEST_ONLY; do "$selected_test"; done
+  exit 0
+fi
+
+if fm_test_selected test_first_copy_readonly_and_local_files_preserved; then test_first_copy_readonly_and_local_files_preserved; fi
 test_true_divergence_after_inherit_still_quarantines
 test_interrupted_publication_matching_source_does_not_quarantine
 test_remote_receiver_accepts_source_only_edit_without_quarantine
 test_drift_quarantine_collision_and_repeated_convergence
 test_missing_source_mirrors_absence_without_losing_local_bytes
-test_unsafe_artifacts_and_failure_restore_readonly_mode
+if fm_test_selected test_unsafe_artifacts_and_failure_restore_readonly_mode; then test_unsafe_artifacts_and_failure_restore_readonly_mode; fi
 test_spawn_convergence_point_copies_shared_file
 test_bootstrap_convergence_point_copies_shared_file
 test_config_push_convergence_point_updates_changed_source

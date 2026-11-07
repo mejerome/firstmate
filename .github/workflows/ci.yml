@@ -26,6 +26,19 @@ concurrency:
 # tiers and their rationale; tests/fm-ci-workflow.test.sh guards this workflow.
 # Each job comment identifies the tier implemented by its executable value.
 
+# Forge portability. This is the only workflow file, and it runs unchanged on
+# GitHub and on the Gitea forge. Three facts drive the shape below:
+#   - a forge may leave strategy.job-total empty, so every matrix carries its
+#     own explicit total; a matrix consumer that read job-total would hand the
+#     runner a lane or partition name ending in "of";
+#   - a forge may ship a bare runner image, so one shared installer step
+#     (bin/fm-ci-prerequisites.sh) fills in the tools the suite names;
+#   - artifacts are diagnostics, never a gate, and a forge without the artifact
+#     v2 service rejects upload/download-artifact@v4 outright, so every artifact
+#     step carries the forge discriminator and skips instead of failing a job.
+# A job may be GitHub-only only where the forge genuinely lacks the capability,
+# and that job states the reason beside its guard.
+
 jobs:
   lint:
     name: Lint ${{ matrix.partition }}
@@ -34,10 +47,19 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # An explicit total per entry, never strategy.job-total: a forge that does
+      # not populate that context hands fm-lint.sh "--partition 2of" and it
+      # refuses the empty partition. Keep exactly two partitions.
       matrix:
-        partition: [1, 2]
+        include:
+          - partition: 1
+            partitions: 2
+          - partition: 2
+            partitions: 2
     steps:
       - uses: actions/checkout@v6
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Install pinned ShellCheck
         run: |
           set -eu
@@ -61,10 +83,11 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-lint"
-          bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ strategy.job-total }}" \
+          bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ matrix.partitions }}" \
             --telemetry "$RUNNER_TEMP/fm-lint/partition-${{ matrix.partition }}.tsv"
       - name: Upload lint telemetry
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-lint-telemetry-${{ matrix.partition }}
@@ -83,6 +106,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Prove complete regression partition
         run: bin/fm-test-run.sh --check-coverage
 
@@ -97,6 +122,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Install pinned ShellCheck
         run: |
           set -eu
@@ -125,7 +152,8 @@ jobs:
             --fail-on-gate-skip 'Pi extension typecheck prerequisite not found' \
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-1.json"
       - name: Upload shard 1 timing artifact
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-parallel-1
@@ -141,6 +169,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Install pinned ShellCheck
         run: |
           set -eu
@@ -163,7 +193,8 @@ jobs:
           bin/fm-test-run.sh --lane portable-parallel-2 \
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-2.json"
       - name: Upload shard 2 timing artifact
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-parallel-2
@@ -184,12 +215,50 @@ jobs:
     strategy:
       # Every shard reports so one failure never hides another shard's result.
       fail-fast: false
+      # An explicit total per entry, never strategy.job-total: a forge that does
+      # not populate that context names the lane "portable-serial-1of" and
+      # bin/fm-test-run.sh refuses it. Growing or shrinking this list without
+      # matching that runner is still refused, because the lane name it produces
+      # must exist there.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        include:
+          - shard: 1
+            shards: 9
+          - shard: 2
+            shards: 9
+          - shard: 3
+            shards: 9
+          - shard: 4
+            shards: 9
+          - shard: 5
+            shards: 9
+          - shard: 6
+            shards: 9
+          - shard: 7
+            shards: 9
+          - shard: 8
+            shards: 9
+          - shard: 9
+            shards: 9
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      # GitHub's ubuntu-latest ships tmux; a bare runner image does not. The
+      # shared installer adds it when absent, and the hard requirement below
+      # still fails rather than silently downgrading to no-e2e coverage.
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
+      # The rendered calm-mode export assertions need a real browser, and a bare
+      # runner image has none. Only the shard that runs them pays for it, and a
+      # forge whose image already carries Chrome stays a no-op.
+      - name: Install the browser the rendered export assertions need
+        if: matrix.shard == 6
+        run: |
+          set -eu
+          command -v google-chrome >/dev/null 2>&1 && exit 0
+          command -v chromium >/dev/null 2>&1 && exit 0
+          bin/fm-ci-prerequisites.sh chromium
       - name: Install pinned ShellCheck
         run: |
           set -eu
@@ -223,10 +292,10 @@ jobs:
           npm ls -g --depth 0 @earendil-works/pi-coding-agent
       - name: Run portable serial shard ${{ matrix.shard }}
         env:
-          # job-total rather than a literal, so shrinking or growing the matrix
-          # without matching bin/fm-test-run.sh is refused instead of quietly
-          # leaving a shard of the required lane unrun.
-          FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of${{ strategy.job-total }}
+          # The matrix total rather than a literal, so shrinking or growing the
+          # matrix without matching bin/fm-test-run.sh is refused instead of
+          # quietly leaving a shard of the required lane unrun.
+          FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of${{ matrix.shards }}
           FM_SERIAL_SHARD: ${{ matrix.shard }}
         run: |
           set -eu
@@ -237,7 +306,8 @@ jobs:
             --fail-on-gate-skip 'Pi extension typecheck prerequisite not found' \
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-serial-${FM_SERIAL_SHARD}.json"
       - name: Upload portable serial shard ${{ matrix.shard }} timing artifact
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-serial-${{ matrix.shard }}
@@ -259,6 +329,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Require tools for real Herdr
         run: |
           set -eu
@@ -358,7 +430,8 @@ jobs:
             exit 1
           }
       - name: Upload Herdr timing and diagnostics
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-herdr
@@ -382,7 +455,11 @@ jobs:
     if: always()
     steps:
       - uses: actions/checkout@v6
+      - name: Install CI prerequisites
+        run: bin/fm-ci-prerequisites.sh
       - name: Download lane timing artifacts
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: fm-test-timing-*
@@ -402,7 +479,8 @@ jobs:
             "$RUNNER_TEMP/fm-test/fm-test-timing-aggregate.json" \
             "${inputs[@]}"
       - name: Upload aggregate timing artifact
-        if: always()
+        if: ${{ always() && github.server_url == 'https://github.com' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-aggregate
@@ -412,6 +490,19 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
+    # GitHub-only: the Gitea forge has no macOS runner, so this job can never be
+    # picked there. Every other job here is portable and stays required on both
+    # forges.
+    # The `needs` entry is what makes the guard effective on Gitea: that forge
+    # matches a job to a runner by its runs-on label before anything evaluates a
+    # job-level if, so an unheld job would wait forever instead of skipping. A
+    # job held by `needs` is resolved by the server, which evaluates this if,
+    # finds another forge, and records the job as skipped. always() keeps the
+    # macOS job running on GitHub when the job it needs fails, so nothing about
+    # its GitHub behaviour loosens. The needed job is the fast coverage guard so
+    # this decision lands early in the run, not at the end of it.
+    needs: [test-coverage]
+    if: ${{ always() && github.server_url == 'https://github.com' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
