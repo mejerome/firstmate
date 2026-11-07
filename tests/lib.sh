@@ -321,6 +321,66 @@ fm_test_permission_enforced() {
   return 0
 }
 
+# --- permission-class re-exec ----------------------------------------------
+#
+# A permission-refusal fixture needs a job user that mode bits deny. Where the job
+# runs as root, these helpers re-execute the same test file as the image's
+# unprivileged user, so those checks run for real instead of reporting a
+# capability skip. Nothing is skipped or weakened: a file that can re-exec runs
+# its permission fixtures unprivileged, and a file that cannot (no such user, no
+# su) keeps its own `skip: root_job` line as the honest fallback.
+#
+# fm_test_selected <fixture>: 0 when that fixture should run. With FM_TEST_ONLY
+# set, only the listed fixtures run, which is how a re-executed child is kept to
+# the permission-class fixtures instead of re-running a whole file unprivileged.
+fm_test_selected() {  # <fixture>
+  [ -z "${FM_TEST_ONLY:-}" ] && return 0
+  case ",${FM_TEST_ONLY}," in
+    *",$1,"*) return 0 ;;
+  esac
+  return 1
+}
+
+# fm_test_unprivileged_user: echo the user a re-exec should drop to.
+fm_test_unprivileged_user() {
+  local candidate
+  for candidate in ${FM_TEST_UNPRIVILEGED_USER:-} node nobody; do
+    [ -n "$candidate" ] || continue
+    id -u "$candidate" >/dev/null 2>&1 && { printf '%s\n' "$candidate"; return 0; }
+  done
+  return 1
+}
+
+# fm_test_reexec_unprivileged <fixture>...
+# Call this at file scope, before the test invocations. When the current user is
+# root and an unprivileged user exists, this re-runs this file under that user
+# with only the named fixtures selected, then exits with the child's status, so
+# the parent never runs a second copy. It returns 1 (and the file continues) when
+# the re-exec is not applicable, leaving each fixture's own guard in charge.
+fm_test_reexec_unprivileged() {
+  local user script tmp
+  [ "${FM_TEST_REEXEC_CHILD:-0}" = 1 ] && return 1
+  [ "$(id -u)" -eq 0 ] || return 1
+  user=$(fm_test_unprivileged_user) || return 1
+  command -v su >/dev/null 2>&1 || return 1
+  script=${BASH_SOURCE[1]}
+  [ -f "$script" ] || return 1
+  # The unprivileged user must be able to reach this checkout at all. A copy
+  # under a 0700 home is not reachable, and dying there would turn an honest
+  # capability skip into a failure, so an unreachable tree simply means "not
+  # applicable" and the fixture's own guard stays in charge.
+  su "$user" -s /bin/bash -c "cd '$PWD' && [ -f '$script' ]" >/dev/null 2>&1 || return 1
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-unpriv.XXXXXX" 2>/dev/null) || return 1
+  chown "$user" "$tmp" 2>/dev/null || true
+  # A checkout the unprivileged user does not own is refused by git's ownership
+  # check, which breaks fixtures that shell out to git; this is the same
+  # safe.directory handling the lab measured.
+  git config --system --add safe.directory "$ROOT" >/dev/null 2>&1 || true
+  su "$user" -s /bin/bash -c \
+    "cd '$PWD' && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' bash '$script'"
+  exit $?
+}
+
 # fm_test_process_running: 0 only while <pid> is alive and has not exited.
 # A zombie has already exited and only waits for an init that reaps it, so it is
 # not a running process. /proc is absent on macOS, where kill -0 is the answer.
