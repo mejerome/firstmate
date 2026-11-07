@@ -789,6 +789,12 @@ test_stamped_close_line_stays_within_the_status_line_cap() {
 }
 
 test_failed_close_recovery_command_is_shell_safe() {
+  # The induced failure is a mode-bit denial on the status file, which a root
+  # job user ignores: the append then succeeds and no close failure is surfaced.
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: failed-close-recovery-command-is-shell-safe needs a job user that mode bits deny\n'
+    return 0
+  fi
   local dir fb log home err marker answer rc diagnostic manual out
   dir="$TMP_ROOT/manual-close"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
