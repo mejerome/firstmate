@@ -77,7 +77,7 @@ test_term_ends_a_cooperative_command_at_the_bound() {
   [ "$elapsed" -ge 1 ] || fail "the bound fired before it elapsed (${elapsed}s)"
   [ "$elapsed" -lt 15 ] || fail "a TERM-honoring command waited out the grace (${elapsed}s): TERM was not sent at the bound"
   pid=$(cat "$dir/pid")
-  ! kill -0 "$pid" 2>/dev/null || fail "the bounded command outlived its bound"
+  ! fm_test_process_running "$pid" || fail "the bounded command outlived its bound"
   pass "fm_exec_timed sends TERM at the bound and a cooperative command ends there"
 }
 
@@ -94,7 +94,7 @@ test_kill_ends_a_term_ignoring_command_after_the_grace() {
   [ "$elapsed" -ge 3 ] || fail "a TERM-ignoring command ended before bound plus grace (${elapsed}s): the grace was skipped"
   [ "$elapsed" -lt 20 ] || fail "a TERM-ignoring command was not killed after the grace (${elapsed}s)"
   pid=$(cat "$dir/pid")
-  ! kill -0 "$pid" 2>/dev/null || fail "the TERM-ignoring command survived the KILL"
+  ! fm_test_process_running "$pid" || fail "the TERM-ignoring command survived the KILL"
   pass "fm_exec_timed kills a TERM-ignoring command once the grace has passed"
 }
 
@@ -140,7 +140,7 @@ test_a_descendant_holding_the_output_cannot_outlast_the_bound() {
   [ "$elapsed" -lt 15 ] \
     || fail "a TERM-ignoring descendant held the captured output for ${elapsed}s past a 1s bound"
   pid=$(cat "$dir/pid")
-  ! kill -0 "$pid" 2>/dev/null || fail "the TERM-ignoring descendant survived the bound"
+  ! fm_test_process_running "$pid" || fail "the TERM-ignoring descendant survived the bound"
   pass "fm_exec_timed reaps a descendant that would otherwise hold the output past the bound"
 }
 
@@ -194,7 +194,7 @@ test_a_named_owner_that_is_gone_ends_the_command() {
   [ "$rc" -ne 0 ] || fail "a command ended by its owner's death reported success"
   if [ -s "$dir/pid" ]; then
     pid=$(cat "$dir/pid")
-    ! kill -0 "$pid" 2>/dev/null || fail "the bounded command outlived its named owner"
+    ! fm_test_process_running "$pid" || fail "the bounded command outlived its named owner"
   fi
   pass "fm_exec_timed ends the command when its named owner is already gone"
 }

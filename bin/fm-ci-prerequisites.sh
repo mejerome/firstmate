@@ -14,6 +14,8 @@
 #   python3       - fm-test-run.sh timing aggregation and the Herdr lab viewer
 #   ruby          - tests/fm-ci-workflow.test.sh and the no-mistakes contract test
 #   tmux          - the real AFK injection e2e coverage
+#   lsof          - process-ownership probes in teardown and daemon tests;
+#                   a bare forge image may omit it
 #   tsc           - the Pi extension typecheck the lanes refuse to gate-skip around
 #                   (installed from npm, the only source that provides it)
 #   /usr/bin/time - fm-lint.sh's per-root RSS reporting; probed by absolute path
@@ -30,7 +32,7 @@ set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-DEFAULT_TOOLS='curl perl python3 ruby tmux'
+DEFAULT_TOOLS='curl perl python3 ruby tmux lsof'
 DEFAULT_NPM_TOOLS='tsc'
 # GNU time is probed by absolute path: `time` is also a shell builtin, so a
 # command lookup would pass while /usr/bin/time is absent and the suite's

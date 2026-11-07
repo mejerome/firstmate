@@ -4577,6 +4577,9 @@ JS
     active_screen_wait=$((active_screen_wait + 1))
   done
   cp "$working_snapshot" "$boat_frame_one"
+  # Capture the colored frame at the same active moment as the plain frame;
+  # a later capture can land after the working run ends and lose the ship.
+  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
   assert_contains "$(cat "$boat_frame_one")" '╲▁▁▁╱' "Calm did not show the working ship during a real provider wait"
   assert_contains "$(cat "$boat_frame_one")" '◿│◣' "the working ship lost its centered asymmetric sail"
   assert_not_contains "$(cat "$boat_frame_one")" "Working" "Calm left Pi's stock working row visible while the ship was shown"
@@ -4592,7 +4595,6 @@ JS
     || fail "the working ship rendered no low waveform"
   # Standard ANSI colors: all water blue at every height, the whole hull and sail
   # yellow, no cyan crests or red sail half, and no RGB/256 escapes.
-  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
   # Capture the hull and sail rows by the same exact glyph runs the geometry
   # assertions use. A bare glyph also matches the water rows that carry ╲ beside
   # the trough, so on some renders the first match was a water row: the blue

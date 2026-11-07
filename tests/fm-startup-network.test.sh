@@ -23,6 +23,11 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# The report-publication case uses mode bits to prove an unwritable report
+# directory; a root job user bypasses those bits, so run the whole fixture as an
+# unprivileged user when this suite is launched as root.
+if fm_test_reexec_unprivileged "$@"; then exit 0; fi
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
 
@@ -278,6 +283,13 @@ EOF
 
 test_a_report_publication_failure_is_failed_and_still_wakes() {
   local rec home root log claimant output state
+  # Mode bits cannot deny a root job user, and the checkout may not be reachable
+  # by an unprivileged re-exec. In that capability gap the fixture is skipped,
+  # not reported as a product failure.
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: root_job: report-directory mode bits cannot deny a root job user\n'
+    return 0
+  fi
   rec=$(new_world report-publication-failure)
   IFS='|' read -r home root log <<EOF
 $rec

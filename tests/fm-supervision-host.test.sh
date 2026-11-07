@@ -1574,7 +1574,7 @@ test_a_park_stopped_mid_take_over_leaves_the_take_over_to_the_next_park() {
   # The Stop hook runs the next park in place of the one stopped by a signal.
   wait_until 150 host_owns_the_only_cycle "$home" \
     || fail "interrupted takeover: the next park did not own the home's only watcher cycle (left arm $LEFT_ARM):"$'\n'"$(home_arms "$home")"$'\n'"$(cat "$home/state/.supervision-host.log")"
-  ! kill -0 "$LEFT_ARM" 2>/dev/null || fail "interrupted takeover: the left arm still runs (pid $LEFT_ARM)"
+  ! fm_test_process_running "$LEFT_ARM" || fail "interrupted takeover: the left arm still runs (pid $LEFT_ARM)"
   pass "host+hook: a park stopped mid take-over leaves the take-over to the next park"
 }
 

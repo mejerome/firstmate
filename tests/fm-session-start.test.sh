@@ -360,7 +360,7 @@ case "${1:-}" in
     fi
     if [ -e "$spawned" ]; then
       case "$format" in
-        *pane_current_command*) printf '%s\n' node ;;
+        *pane_current_command*) printf '%s\n' pi ;;
         *) printf '%%1\n' ;;
       esac
       exit 0
@@ -457,6 +457,17 @@ case "${1:-} ${2:-}" in
       printf '%s\n' '{"result":{"panes":[{"pane_id":"p-old","tab_id":"t-old"}]}}'
     else
       printf '%s\n' '{"result":{"panes":[]}}'
+    fi
+    ;;
+  "pane process-info")
+    pane=${4:-}
+    if [ "$pane" = p-new ] && [ -e "$spawned" ]; then
+      printf '%s\n' '{"result":{"type":"pane_process_info","process_info":{"pane_id":"p-new","shell_pid":12345,"foreground_processes":[{"pid":12346,"name":"pi","argv0":"pi","cmdline":"pi"}]}}}'
+    elif [ "$pane" = p-old ] && [ ! -e "$killed" ]; then
+      printf '%s\n' '{"result":{"type":"pane_process_info","process_info":{"pane_id":"p-old","shell_pid":12345,"foreground_processes":[{"pid":12346,"name":"zsh","argv0":"zsh","cmdline":"zsh"}]}}}'
+    else
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}' >&2
+      exit 1
     fi
     ;;
   "pane get")
