@@ -397,13 +397,13 @@ test_dispatch_entry_scopes_rows_and_renders_the_away_tail() {
   append_wake "$state" signal demo.status "signal: $state/demo.status"
   append_wake "$state" check merge "check: merge landed: fixture"
 
-  out=$(FM_HOME="$home" node "$DISPATCH" scope)
+  out=$(FM_HOME="$home" timeout 300 node "$DISPATCH" scope)
   assert_contains "$out" "status=safe" "an attended scan with a resolvable row must be safe"
   assert_contains "$out" "rows=1" "an attended scan must leave the check row to main"
   assert_contains "$out" "tasks=demo" "the signal row must resolve to its task"
   assert_contains "$out" "unscoped=0" "a task-local claim must be scoped"
 
-  out=$(FM_HOME="$home" node "$DISPATCH" scope --afk)
+  out=$(FM_HOME="$home" timeout 300 node "$DISPATCH" scope --afk)
   assert_contains "$out" "rows=1 2" "an away scan must claim the check row too"
   assert_contains "$out" "unscoped=1" "a claimed check row names no task, so the claim is unscoped"
 

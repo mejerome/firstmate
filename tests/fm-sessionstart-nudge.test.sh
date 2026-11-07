@@ -172,7 +172,7 @@ test_opencode_plugin_delivers_exact_nudge_once() {
     "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
   chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   out=$(PLUGIN="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js" \
-    WORKTREE="$root" EXPECTED="$NUDGE_LINE" node --input-type=module 2>&1 <<'EOF'
+    WORKTREE="$root" EXPECTED="$NUDGE_LINE" timeout 300 node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const prompts = [];
@@ -385,7 +385,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const pi = {
@@ -548,7 +548,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import {
   existsSync,
   readFileSync,
@@ -815,7 +815,7 @@ SH
     local home=$1 expect=$2 case_out
     case_out=$(EXT="$home/.pi/extensions/fm-primary-turnend-guard.ts" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$home" EXPECT="$expect" \
-      node --input-type=module 2>&1 <<'JS'
+      timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
@@ -894,7 +894,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -1017,7 +1017,7 @@ SH
 
   out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" FM_GATE_REFUSE_BYPASS=1 \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const pi = {

@@ -201,7 +201,7 @@ pass "probe fails when the primary never answered its nonce"
 
 # trust: the workspace-trust prompt wedged the first lab.
 cp "$HOME/.claude.json" "$TMP_ROOT/claude.json.keep"
-node -e 'const fs=require("node:fs");const [s,h]=process.argv.slice(1);const j=JSON.parse(fs.readFileSync(s,"utf8"));delete j.projects[h];fs.writeFileSync(s,JSON.stringify(j))' "$HOME/.claude.json" "$CH"
+timeout 300 node -e 'const fs=require("node:fs");const [s,h]=process.argv.slice(1);const j=JSON.parse(fs.readFileSync(s,"utf8"));delete j.projects[h];fs.writeFileSync(s,JSON.stringify(j))' "$HOME/.claude.json" "$CH"
 run_check "$C"
 assert_contains "$CHECK_OUT" "fail trust: $CH has no registered Claude workspace trust" "trust names the untrusted home"
 cp "$TMP_ROOT/claude.json.keep" "$HOME/.claude.json"
@@ -666,7 +666,7 @@ assert_contains "$brief" "and end your turn" "worker ends its waiting turn"
 assert_contains "$brief" "Do not poll or sleep in a foreground command" "worker does not run a blocking wait"
 assert_contains "$brief" "When a later message resumes you, check that" "worker checks the gate after a message"
 assert_contains "$out" "fail worker: the worker is not currently parked" "final readiness remains strict"
-node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects?.[process.argv[2]]?.hasTrustDialogAccepted===true?0:1)' "$HOME/.claude.json" "$W/home" || fail "primary trust was not registered before launch"
+timeout 300 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects?.[process.argv[2]]?.hasTrustDialogAccepted===true?0:1)' "$HOME/.claude.json" "$W/home" || fail "primary trust was not registered before launch"
 out=$("$LIVE_LAB" down "$W" 2>&1)
 expect_code 0 "$?" "down cleans the worker lab: $out"
 pass "up launches primary after worker status without weakening final parked readiness"
@@ -712,7 +712,7 @@ U="$TMP_ROOT/up-lab"
     sleep 0.05
   done
   sleep 0.5
-  node -e 'const fs=require("node:fs");const [s,k]=process.argv.slice(1);const j=JSON.parse(fs.readFileSync(s,"utf8"));delete j.projects[k];fs.writeFileSync(s,JSON.stringify(j))' "$HOME/.claude.json" "$U/home"
+  timeout 300 node -e 'const fs=require("node:fs");const [s,k]=process.argv.slice(1);const j=JSON.parse(fs.readFileSync(s,"utf8"));delete j.projects[k];fs.writeFileSync(s,JSON.stringify(j))' "$HOME/.claude.json" "$U/home"
   echo dropped > "$TMP_ROOT/rival-dropped"
 ) &
 RIVAL=$!
@@ -738,7 +738,7 @@ git -C "$T/home" init -q -b main
 out=$(CLAUDE_CONFIG_DIR="$T/config" "$TRUST" --lab-home "$T/home" 2>&1)
 expect_code 0 "$?" "a marked lab primary checkout is trusted: $out"
 TH=$(cd -P "$T/home" && pwd -P)
-node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects[process.argv[2]].hasTrustDialogAccepted===true&&!("hasClaudeMdExternalIncludesApproved" in j.projects[process.argv[2]])?0:1)' \
+timeout 300 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects[process.argv[2]].hasTrustDialogAccepted===true&&!("hasClaudeMdExternalIncludesApproved" in j.projects[process.argv[2]])?0:1)' \
   "$T/config/.claude.json" "$TH" || fail "lab-home trust is trust-only"
 
 mkdir -p "$T/plain/bin"

@@ -285,7 +285,7 @@ bind_package() {  # <home> <package> <adapter> [extra args...]
 }
 
 binding_value() {  # <home> <id> <field>
-  node -e '
+  timeout 300 node -e '
     const fs = require("fs");
     const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     const path = process.argv[2].split(".");
@@ -1804,7 +1804,7 @@ wait_for_invocation_owner() {  # <home>
 }
 
 owner_group_pid() {  # <owner-file>
-  node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(value.phase!=="group"||!Number.isSafeInteger(value.group_pid))process.exit(1);process.stdout.write(String(value.group_pid));' "$1"
+  timeout 300 node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(value.phase!=="group"||!Number.isSafeInteger(value.group_pid))process.exit(1);process.stdout.write(String(value.group_pid));' "$1"
 }
 
 guarded_out=$(invoke_cleanup guarded node --disallow-code-generation-from-strings "$HOST")
@@ -1966,7 +1966,7 @@ if section_enabled remote-envelope; then
 REMOTE_TRANSFER="$TMP_ROOT/remote-transfer.json"
 FM_HOME="$H_REMOTE_CONTROL" "$HOST" pack-transfer "$P_REMOTE" > "$REMOTE_TRANSFER"
 mutate_transfer() {
-  node - "$REMOTE_TRANSFER" "$1" "$2" <<'JS'
+  timeout 300 node - "$REMOTE_TRANSFER" "$1" "$2" <<'JS'
 const fs = require("fs");
 const crypto = require("crypto");
 const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -2146,7 +2146,7 @@ assert_present "$H_REMOTE/config/extensions.d/org.example.remote.json" "stale bi
 expect_failure "no unique staged package" remote_direct fm-extension.sh retire-transfer org.example.remote \
   --if-transfer-digest "$wrong_binding_digest" --if-binding-digest "$remote_binding_digest"
 cp "$remote_receipt" "$TMP_ROOT/remote-receipt.json"
-node - "$remote_receipt" <<'JS'
+timeout 300 node - "$remote_receipt" <<'JS'
 const fs = require("fs");
 const file = process.argv[2];
 const value = JSON.parse(fs.readFileSync(file, "utf8"));
