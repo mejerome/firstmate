@@ -4593,8 +4593,12 @@ JS
   # Standard ANSI colors: all water blue at every height, the whole hull and sail
   # yellow, no cyan crests or red sail half, and no RGB/256 escapes.
   tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
-  boat_color_line=$(grep -F '╲' "$boat_color_snapshot" | head -1)
-  boat_sail_line=$(grep -F '◿' "$boat_color_snapshot" | head -1)
+  # Capture the hull and sail rows by the same exact glyph runs the geometry
+  # assertions use. A bare glyph also matches the water rows that carry ╲ beside
+  # the trough, so on some renders the first match was a water row: the blue
+  # check passed against it and the yellow one then failed on the wrong line.
+  boat_color_line=$(grep -F '╲▁▁▁╱' "$boat_color_snapshot" | head -1)
+  boat_sail_line=$(grep -F '◿│◣' "$boat_color_snapshot" | head -1)
   [ -n "$boat_color_line" ] || fail "could not capture a colored working-ship row"
   [ -n "$boat_sail_line" ] || fail "could not capture a colored working-ship sail"
   case "$boat_color_line" in
