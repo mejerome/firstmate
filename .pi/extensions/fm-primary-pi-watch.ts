@@ -1201,8 +1201,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on?.("before_agent_start", (event) => {
     // A wake is delivered as a user message (sendUserMessage above), so only a
-    // user start can echo one back; a custom start carries no prompt to match.
-    if (event.messageType !== "user") return;
+    // custom start has no prompt to match; testing the custom discriminant keeps
+    // an event with a prompt but no messageType working as it did before 1.5.0.
+    if (event.messageType === "custom") return;
     consumeWake(generation, event.prompt);
   });
   pi.on?.("message_start", (event) => {
