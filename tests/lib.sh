@@ -334,9 +334,17 @@ fm_test_permission_enforced() {
 # set, only the listed fixtures run, which is how a re-executed child is kept to
 # the permission-class fixtures instead of re-running a whole file unprivileged.
 fm_test_selected() {  # <fixture>
-  [ -z "${FM_TEST_ONLY:-}" ] && return 0
+  local fixture=$1
+  if [ -z "${FM_TEST_ONLY:-}" ]; then
+    # Parent run: a fixture the unprivileged child already covered must not run
+    # again here, where it would only report the capability skip.
+    case ",${FM_TEST_REEXEC_DONE:-}," in
+      *",$fixture,"*) return 1 ;;
+    esac
+    return 0
+  fi
   case ",${FM_TEST_ONLY}," in
-    *",$1,"*) return 0 ;;
+    *",$fixture,"*) return 0 ;;
   esac
   return 1
 }
@@ -375,10 +383,22 @@ fm_test_reexec_unprivileged() {
   # A checkout the unprivileged user does not own is refused by git's ownership
   # check, which breaks fixtures that shell out to git; this is the same
   # safe.directory handling the lab measured.
-  git config --system --add safe.directory "$ROOT" >/dev/null 2>&1 || true
+  # safe.directory is scoped to the child's own environment, never written to the
+  # machine's system configuration.
+  local rc=0
   su "$user" -s /bin/bash -c \
-    "cd '$PWD' && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' bash '$script'"
-  exit $?
+    "cd '$PWD' && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' \
+     GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$ROOT' \
+     bash '$script'" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'not ok - permission fixtures failed as %s: %s\n' "$user" "$*"
+    exit 1
+  fi
+  # The parent keeps running: its own tests still need to run, and the fixtures
+  # this child covered are marked so they do not run twice.
+  FM_TEST_REEXEC_DONE="${FM_TEST_REEXEC_DONE:-}${FM_TEST_REEXEC_DONE:+ }$*"
+  export FM_TEST_REEXEC_DONE
+  return 0
 }
 
 # fm_test_process_running: 0 only while <pid> is alive and has not exited.
