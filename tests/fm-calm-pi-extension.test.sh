@@ -4570,7 +4570,7 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
-    if grep -Fq '╲▁▁▁╱' "$boat_color_snapshot"; then
+    if grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' >/dev/null; then
       break
     fi
     sleep 0.025
