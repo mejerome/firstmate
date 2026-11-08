@@ -629,7 +629,6 @@ wrap_forge() { # home: log gh calls and apply per-call faults from $FORGE/fault
   cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -eu
-printf '%s\n' "$*" >> "$FORGE/calls"
 fault=$(cat "$FORGE/fault" 2>/dev/null || true)
 case "$fault" in latency) sleep "${FORGE_LATENCY:-2}" ;; esac
 # Concurrent forge callers each advance one shared clock. Truncating it in
@@ -663,6 +662,14 @@ SH
 if [ "$*" = +%s ] && [ -f "$FORGE/clock" ]; then cat "$FORGE/clock"; else exec /bin/date "$@"; fi
 SH
   chmod +x "$home/fakebin/gh" "$home/fakebin/date"
+  # The call log is written by this shell function before the bounded child is
+  # spawned, so a one-second budget still records the attempted read even when
+  # a loaded runner delays the child's startup past the bound.
+  gh() {
+    printf '%s\n' "$*" >> "$FORGE/calls"
+    "$FORGE/../fakebin/gh" "$@"
+  }
+  export -f gh
 }
 
 test_budget_exhaustion_keeps_prior_record() { # exhaust|hang
