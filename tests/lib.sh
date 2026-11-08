@@ -391,7 +391,7 @@ fm_test_reexec_unprivileged() {
      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$ROOT' \
      bash '$script'" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    printf 'not ok - permission fixtures failed as %s: %s\n' "$user" "$*"
+    printf 'not ok - permission fixtures failed as %s: rc=%s fixtures=%s\n' "$user" "$rc" "${*:-all}"
     exit 1
   fi
   # The parent keeps running: its own tests still need to run, and the fixtures

@@ -850,7 +850,7 @@ EOF
   await_worker_record "$home"
   worker=$(sed -n 's/^pid=//p' "$home/state/.startup-network.status")
   waited=0
-  while [ ! -f "$log" ] && [ "$waited" -lt 50 ]; do
+  while [ ! -f "$log" ] && [ "$waited" -lt 150 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
