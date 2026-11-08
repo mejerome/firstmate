@@ -385,13 +385,16 @@ fm_test_reexec_unprivileged() {
   # safe.directory handling the lab measured.
   # safe.directory is scoped to the child's own environment, never written to the
   # machine's system configuration.
-  local rc=0
+  local rc=0 detail log="$tmp/reexec.log"
   su "$user" -s /bin/bash -c \
     "cd '$PWD' && unset FM_ROOT_OVERRIDE && FM_TEST_REEXEC_CHILD=1 FM_TEST_ONLY='$*' TMPDIR='$tmp' HOME='$tmp' \
      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$ROOT' \
-     bash '$script'" || rc=$?
+     bash '$script'" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[0]}
   if [ "$rc" -ne 0 ]; then
-    printf 'not ok - permission fixtures failed as %s: rc=%s fixtures=%s\n' "$user" "$rc" "${*:-all}"
+    detail=$(grep -m1 'not ok' "$log" 2>/dev/null || true)
+    [ -n "$detail" ] || detail=$(grep -m1 'FM_TEST_END' "$log" 2>/dev/null || true)
+    printf 'not ok - permission fixtures failed as %s: rc=%s fixtures=%s; child: %s\n' "$user" "$rc" "${*:-all}" "$detail"
     exit 1
   fi
   # The parent keeps running: its own tests still need to run, and the fixtures
