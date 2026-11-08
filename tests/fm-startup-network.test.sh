@@ -854,7 +854,7 @@ EOF
     sleep 0.1
     waited=$((waited + 1))
   done
-  [ -f "$log" ] || fail "the detached worker never started its sweep"
+  [ -f "$log" ] || fail "the detached worker never started its sweep: worker stderr: $(cat "$home/state/.startup-network.worker.err" 2>/dev/null); status: $(sed -n '1,6p' "$home/state/.startup-network.status" 2>/dev/null | tr '\n' ' ')"
   holder=$(hold_publish_lock "$home")
   await_pid_exit "$worker" 100 \
     || fail "the worker was still alive 10s after its sweep finished against a held publish lock (2s delivery budget)"
