@@ -2111,13 +2111,22 @@ fm_check_output_cleanup() {
   FM_CHECK_OUTPUT=
 }
 
+fm_check_group_alive() {
+  local pgid=$1
+  case "$pgid" in ''|*[!0-9]*) return 1 ;; esac
+  # A zombie still answers `kill -0 -PGID`; exclude zombie members so a drained
+  # custom check group does not look alive when no container init reaps it.
+  LC_ALL=C ps -eo pid=,pgid=,stat= 2>/dev/null \
+    | awk -v pg="$pgid" '$2 == pg && $3 !~ /^Z/ { found=1 } END { exit !found }'
+}
+
 fm_active_check_stop() {
   local pid=${FM_ACTIVE_CHECK_PID:-} pgid=${FM_ACTIVE_CHECK_PGID:-} i
   [ -n "$pid" ] || [ -n "$pgid" ] || return 0
   [ -z "$pgid" ] || kill -TERM -- "-$pgid" 2>/dev/null || true
   [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
   i=0
-  while [ -n "$pgid" ] && kill -0 -- "-$pgid" 2>/dev/null && [ "$i" -lt 20 ]; do
+  while [ -n "$pgid" ] && fm_check_group_alive "$pgid" && [ "$i" -lt 20 ]; do
     sleep 0.01
     i=$((i + 1))
   done
@@ -2125,11 +2134,11 @@ fm_active_check_stop() {
   [ -z "$pid" ] || kill -KILL "$pid" 2>/dev/null || true
   [ -z "$pid" ] || wait "$pid" 2>/dev/null || true
   i=0
-  while [ -n "$pgid" ] && kill -0 -- "-$pgid" 2>/dev/null && [ "$i" -lt 100 ]; do
+  while [ -n "$pgid" ] && fm_check_group_alive "$pgid" && [ "$i" -lt 100 ]; do
     sleep 0.01
     i=$((i + 1))
   done
-  if [ -n "$pgid" ] && kill -0 -- "-$pgid" 2>/dev/null; then
+  if [ -n "$pgid" ] && fm_check_group_alive "$pgid"; then
     return 1
   fi
   FM_ACTIVE_CHECK_PID=

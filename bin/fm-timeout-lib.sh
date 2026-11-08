@@ -246,6 +246,14 @@ fm_exec_timed() {  # <seconds> <grace-seconds> <command...>
       $pid = $child;
       kill $pending, -$pid if $pending;
       my $deadline = time + $bound;
+      sub owner_alive {
+        my $pid = shift;
+        return 0 if !kill(0, $pid);
+        open my $fh, "<", "/proc/$pid/stat" or return 1;
+        my $line = <$fh>;
+        close $fh;
+        return $line !~ /\)\s+Z\s/;
+      }
       sub finish {
         my $status = shift;
         kill "KILL", -$pid if $kill_at;
@@ -266,7 +274,7 @@ fm_exec_timed() {  # <seconds> <grace-seconds> <command...>
           $timed_out = 1;
           $kill_at = time + $grace;
           kill "TERM", -$pid;
-        } elsif (getppid() != $parent || !kill(0, $owner)) {
+        } elsif (getppid() != $parent || !owner_alive($owner)) {
           $kill_at = time + $grace;
           kill "TERM", -$pid;
         }

@@ -1465,6 +1465,7 @@ parent_of() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
 # A process that exited is not a survivor, even where this init leaves it a
 # zombie; the exit-side checks add the strict kill -0 form wherever init reaps.
 not_running() { ! fm_test_process_running "$1"; }
+not_running_both() { not_running "$1" && not_running "$2"; }
 
 # True once the park's own arm owns the home's only watcher cycle: exactly one
 # arm runs from the home, it is the host's child, and it is the watcher's parent.
@@ -2295,7 +2296,7 @@ test_engine_turn_is_bounded_and_its_descendants_reaped() {
   wait_until 300 host_exited "$home" || fail "hang: the bounded turn did not end"
   assert_re '^supervision-host: .*the engine turn hit its 3s bound; this wake is yours$' "$home/host.out" "a bounded turn must hand its wake to main"
   orphan=$(cat "$home/orphan-pid")
-  wait_until 50 sh -c '! kill -0 "$1" 2>/dev/null' _ "$orphan" \
+  wait_until 50 not_running "$orphan" \
     || fail "an engine tool process in its own process group outlived the turn: $(ps -p "$orphan" -o pid=,pgid=,command=)"
   pass "host: an engine turn is bounded, and tool processes outside its process group are reaped"
 }
@@ -2310,9 +2311,9 @@ test_restarted_host_stops_what_a_killed_predecessor_left() {
   watcher=$(cat "$home/state/.watch.lock/pid")
   kill -KILL "$first_host"
   sleep 1
-  kill -0 "$arm" 2>/dev/null || fail "crash: fixture error: the arm died with its host, so this case proves nothing"
+  fm_test_process_running "$arm" || fail "crash: fixture error: the arm died with its host, so this case proves nothing"
   start_host "$home"
-  wait_until 200 sh -c '! kill -0 "$1" 2>/dev/null && ! kill -0 "$2" 2>/dev/null' _ "$arm" "$watcher" \
+  wait_until 200 not_running_both "$arm" "$watcher" \
     || fail "a restarted host left its killed predecessor's arm or watcher running"
   wait_until 100 sh -c 'grep -q "	start	gen=host-" "$1" && [ "$(grep -c "	start	" "$1")" -ge 2 ]' _ "$home/state/.supervision-host.log" \
     || fail "the restarted host did not start"

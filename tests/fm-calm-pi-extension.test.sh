@@ -4569,17 +4569,16 @@ JS
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$working_snapshot"
-    if grep -Fq '╲▁▁▁╱' "$working_snapshot"; then
+    tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
+    if grep -Fq '╲▁▁▁╱' "$boat_color_snapshot"; then
       break
     fi
     sleep 0.025
     active_screen_wait=$((active_screen_wait + 1))
   done
-  cp "$working_snapshot" "$boat_frame_one"
-  # Capture the colored frame at the same active moment as the plain frame;
-  # a later capture can land after the working run ends and lose the ship.
-  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
+  # Derive the plain frame from the colored capture, so both assertions describe
+  # the same active moment; a second capture can land after the run ends.
+  perl -pe 's/\x1b\[[0-9;]*m//g' "$boat_color_snapshot" >"$boat_frame_one"
   assert_contains "$(cat "$boat_frame_one")" '╲▁▁▁╱' "Calm did not show the working ship during a real provider wait"
   assert_contains "$(cat "$boat_frame_one")" '◿│◣' "the working ship lost its centered asymmetric sail"
   assert_not_contains "$(cat "$boat_frame_one")" "Working" "Calm left Pi's stock working row visible while the ship was shown"

@@ -4109,7 +4109,7 @@ EOF
     i=$((i + 1))
   done
   grep -qx "$pid" "$cleanup_log" 2>/dev/null || fail "Pi process-exit fallback did not deliver TERM to the replacement arm child"
-  if kill -0 "$pid" 2>/dev/null; then
+  if fm_test_process_running "$pid"; then
     kill -TERM "$pid" 2>/dev/null || true
     fail "Pi arm child $pid survived process-exit cleanup"
   fi

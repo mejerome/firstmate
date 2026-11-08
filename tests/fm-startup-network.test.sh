@@ -162,11 +162,11 @@ hold_publish_lock() {  # <home>
 # await_pid_exit <pid> <tenths>: true when the process exits inside the bound.
 await_pid_exit() {  # <pid> <tenths>
   local waited=0
-  while kill -0 "$1" 2>/dev/null && [ "$waited" -lt "$2" ]; do
+  while fm_test_process_running "$1" && [ "$waited" -lt "$2" ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  ! kill -0 "$1" 2>/dev/null
+  ! fm_test_process_running "$1"
 }
 
 # --- tests -------------------------------------------------------------------
@@ -225,11 +225,11 @@ EOF
     || fail "harvest did not durably acknowledge the result it printed"
   kill "$claimant" 2>/dev/null || true
   wait "$claimant" 2>/dev/null || true
-  while kill -0 "$worker_pid" 2>/dev/null && [ "$waited" -lt 50 ]; do
+  while fm_test_process_running "$worker_pid" && [ "$waited" -lt 50 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  ! kill -0 "$worker_pid" 2>/dev/null \
+  ! fm_test_process_running "$worker_pid" \
     || fail "the worker did not settle after harvest acknowledged its result"
   [ ! -s "$home/state/.wake-queue" ] \
     || fail "a result harvest acknowledged also queued a wake: $(cat "$home/state/.wake-queue")"
@@ -269,7 +269,7 @@ EOF
     FM_FAKE_BOOTSTRAP_OUT='MISSING: some-tool (install: brew install some-tool)' \
     run_stage "$home" "$root" start --locked 0 --harvest-pid "$claimant"
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the crash-window worker never published"
-  kill -0 "$claimant" 2>/dev/null \
+  fm_test_process_running "$claimant" \
     || fail "the claimant died before the worker published"
   kill "$claimant" 2>/dev/null || true
   wait "$claimant" 2>/dev/null || true

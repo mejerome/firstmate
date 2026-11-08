@@ -212,7 +212,11 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
     . "$1/bin/fm-timeout-lib.sh"
     (
       echo "$BASHPID" > "$2/watchdog"
-      while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
+      while kill -0 "$$" 2>/dev/null; do
+        state=$(sed -n "s/^[0-9]* (.*) \([A-Za-z]\).*$/\1/p" "/proc/$$/stat" 2>/dev/null || true)
+        [ "$state" = Z ] && break
+        sleep 0.05
+      done
       fm_exec_timed 60 1 bash -c "exec sleep 300"
     ) >/dev/null 2>&1 &
     exit 0
@@ -220,7 +224,7 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
   wait_for_file "$dir/watchdog"
   watchdog=$(cat "$dir/watchdog")
   started=$SECONDS
-  while kill -0 "$watchdog" 2>/dev/null; do
+  while fm_test_process_running "$watchdog"; do
     if [ "$((SECONDS - started))" -ge 15 ]; then
       kill -KILL "$watchdog" 2>/dev/null || true
       fail "a watchdog whose owner died during startup ran on toward its bound"
