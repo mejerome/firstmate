@@ -675,10 +675,9 @@ SH
     case "${1:-}" in
       GH_PROMPT_DISABLED=1)
         shift 2
-        cmd=$1
         shift
         printf '%s\n' "$*" >> "$FORGE/calls"
-        "$cmd" "$@"
+        gh "$@"
         ;;
       *) command env "$@" ;;
     esac
