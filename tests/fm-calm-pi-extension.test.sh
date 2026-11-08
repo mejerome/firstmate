@@ -4568,14 +4568,24 @@ JS
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" -l "/calm-boat-e2e"
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
   active_screen_wait=0
+  boat_frame_ready=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
-    if grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' >/dev/null; then
-      break
+    if grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' >/dev/null \
+       && grep -F '◿│◣' "$boat_color_snapshot" | grep -F '[33m' >/dev/null; then
+      perl -pe 's/\x1b\[0-9;]*m//g' "$boat_color_snapshot" >"$boat_frame_one"
+      boat_hull_column=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_frame_one")
+      boat_sail_column=$(awk 'index($0,"◿│◣"){print index($0,"◿│◣"); exit}' "$boat_frame_one")
+      if [ "$boat_sail_column" -eq $((boat_hull_column + 1)) ]; then
+        boat_frame_ready=1
+        break
+      fi
     fi
     sleep 0.025
     active_screen_wait=$((active_screen_wait + 1))
   done
+  [ "$boat_frame_ready" = 1 ] \
+    || fail "could not capture a colored working-ship frame with the sail centered over its hull"
   # Derive the plain frame from the colored capture, so both assertions describe
   # the same active moment; a second capture can land after the run ends.
   perl -pe 's/\x1b\[[0-9;]*m//g' "$boat_color_snapshot" >"$boat_frame_one"
