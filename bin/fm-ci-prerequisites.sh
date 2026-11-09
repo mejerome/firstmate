@@ -123,24 +123,40 @@ if [ -n "$packages" ]; then
 fi
 
 if [ "$need_jq" -eq 1 ]; then
-  # One pinned build on both forges, installed directly into /usr/bin where this
-  # job may write it: fixtures run production code with PATH="$fakebin:$BASE_PATH"
-  # and BASE_PATH is /usr/bin:/bin:/usr/sbin:/sbin, so a jq that lives only on
-  # the runner-temp PATH is invisible to them - tests/fm-bootstrap.test.sh then
-  # reports "COMPACTION: error ... source=unreadable-json" for a valid file.
-  # GitHub already ships jq 1.7 in /usr/bin, so this is a no-op there.
-  jq_destination=
-  if [ "$(id -u)" -eq 0 ] && [ -d /usr/bin ] && [ -w /usr/bin ]; then
-    jq_destination=/usr/bin
+  # Install the distribution jq first: it is fast and needs no GitHub egress.
+  # The pinned GitHub release remains the fallback because the suite needs jq
+  # 1.7 and a distribution may ship 1.6.
+  if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    if apt-get update -qq && apt-get install -y -qq jq; then
+      :
+    else
+      printf 'fm-ci-prerequisites: distribution jq install failed; trying pinned fallback\n' >&2
+    fi
   fi
-  if [ -z "$jq_destination" ]; then
-    jq_destination="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-ci-bin"
-  fi
-  "$ROOT/bin/fm-install-jq.sh" "$jq_destination"
-  PATH="$jq_destination:$PATH"
-  export PATH
-  if [ -n "${GITHUB_PATH:-}" ] && [ "$jq_destination" != /usr/bin ]; then
-    printf '%s\n' "$jq_destination" >> "$GITHUB_PATH"
+  if jq_usable; then
+    printf 'fm-ci-prerequisites: jq from distribution -> %s (%s)\n' \
+      "$(command -v jq)" "$(jq --version)"
+  else
+    printf 'fm-ci-prerequisites: distribution jq is unusable (%s), installing pinned jq\n' \
+      "$(jq --version 2>/dev/null || echo absent)" >&2
+    # One pinned build on both forges, installed directly into /usr/bin where
+    # this job may write it: fixtures run production code with
+    # PATH="$fakebin:$BASE_PATH" and BASE_PATH is /usr/bin:/bin:/usr/sbin:/sbin,
+    # so a jq that lives only on the runner-temp PATH is invisible to them.
+    jq_destination=
+    if [ "$(id -u)" -eq 0 ] && [ -d /usr/bin ] && [ -w /usr/bin ]; then
+      jq_destination=/usr/bin
+    fi
+    if [ -z "$jq_destination" ]; then
+      jq_destination="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-ci-bin"
+    fi
+    "$ROOT/bin/fm-install-jq.sh" "$jq_destination"
+    PATH="$jq_destination:$PATH"
+    export PATH
+    if [ -n "${GITHUB_PATH:-}" ] && [ "$jq_destination" != /usr/bin ]; then
+      printf '%s\n' "$jq_destination" >> "$GITHUB_PATH"
+    fi
   fi
 fi
 

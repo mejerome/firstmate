@@ -57,12 +57,10 @@ mkdir -p "$TMP_BASE" || die "cannot create the temporary directory $TMP_BASE"
 TMP=$(mktemp -d "$TMP_BASE/fm-jq.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
-# A transient forge/gateway window can outlast a short exponential ladder.
-# Keep the retries bounded and the SHA-256 pin authoritative: sixteen attempts
-# with a capped backoff and deterministic jitter ride a minutes-long outage
-# without letting a permanently missing release wait forever.
-DOWNLOAD_ATTEMPTS=16
-DOWNLOAD_MAX_SLEEP=60
+# Keep the retries bounded and the SHA-256 pin authoritative: six attempts with
+# an exponential backoff ride a short transient window without letting a
+# permanently missing release wait forever.
+DOWNLOAD_ATTEMPTS=6
 download_attempt=1
 while ! curl -fsSL "$URL" -o "$TMP/$ASSET"; do
   if [ "$download_attempt" -ge "$DOWNLOAD_ATTEMPTS" ]; then
@@ -70,10 +68,7 @@ while ! curl -fsSL "$URL" -o "$TMP/$ASSET"; do
     exit 1
   fi
   printf 'fm-install-jq.sh: download attempt %s failed; retrying\n' "$download_attempt" >&2
-  backoff=$((1 << (download_attempt - 1)))
-  [ "$backoff" -le "$DOWNLOAD_MAX_SLEEP" ] || backoff=$DOWNLOAD_MAX_SLEEP
-  jitter=$((download_attempt % 3))
-  sleep $((backoff + jitter))
+  sleep $((1 << (download_attempt - 1)))
   download_attempt=$((download_attempt + 1))
 done
 

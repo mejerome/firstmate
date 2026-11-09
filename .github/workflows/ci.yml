@@ -1,10 +1,16 @@
 name: CI
 
+# Tier contract: pull requests run only the fast gate below (changed-files lint,
+# repo invariants, and the coverage guard); main pushes and the nightly schedule
+# run the full suite. The gate workflow reads the attestation on the PR body.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -58,6 +64,8 @@ jobs:
             partitions: 2
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Install CI prerequisites
         run: bin/fm-ci-prerequisites.sh
       - name: Install pinned ShellCheck
@@ -70,11 +78,34 @@ jobs:
           set -eu
           bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      # Single owner of the lint definition (shell file set, config, version,
-      # and GitHub workflow lint). Do not re-spell the checks here; keep CI
-      # and the pre-push gate on this script so a self-broken ci.yml still
-      # fails locally before merge.
+      # Tier 1 on a pull request: lint only the files changed by the diff, with
+      # ShellCheck and actionlint scoped to those files. On a main push or the
+      # nightly run the canonical two-partition lint remains unchanged.
+      - name: Lint changed files
+        if: github.event_name == 'pull_request'
+        env:
+          FM_LINT_REQUIRE_BOUNDS: '1'
+          FM_LINT_JOBS: '1'
+        run: |
+          set -eu
+          base=$(git merge-base origin/main HEAD)
+          changed=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD)
+          shells=$(printf '%s\n' "$changed" | grep -E '^(bin/[^/]+\.sh|bin/backends/[^/]+\.sh|tests/[^/]+\.sh)$' || true)
+          workflows=$(printf '%s\n' "$changed" | grep -E '^\.github/workflows/.*\.ya?ml$' || true)
+          if [ -n "$shells" ]; then
+            # shellcheck disable=SC2086
+            bin/fm-lint.sh --jobs 1 $shells
+          else
+            printf 'fm-lint: no changed shell files\n'
+          fi
+          if [ -n "$workflows" ]; then
+            # shellcheck disable=SC2086
+            bin/fm-lint-workflows.sh $workflows
+          else
+            printf 'fm-lint: no changed workflow files\n'
+          fi
       - name: Lint canonical partition
+        if: github.event_name != 'pull_request'
         env:
           # Fail closed rather than lint uncapped when a configured per-root
           # bound (wall deadline or memory rlimit) cannot be enforced here.
@@ -86,7 +117,7 @@ jobs:
           bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ matrix.partitions }}" \
             --telemetry "$RUNNER_TEMP/fm-lint/partition-${{ matrix.partition }}.tsv"
       - name: Upload lint telemetry
-        if: ${{ always() && github.server_url == 'https://github.com' }}
+        if: ${{ always() && github.server_url == 'https://github.com' && github.event_name != 'pull_request' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -116,6 +147,8 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+    # Tier 2: skip on pull requests; run on main pushes and the nightly schedule.
+    if: ${{ github.event_name != 'pull_request' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -163,6 +196,8 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+    # Tier 2: skip on pull requests; run on main pushes and the nightly schedule.
+    if: ${{ github.event_name != 'pull_request' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -210,6 +245,8 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+    # Tier 2: skip on pull requests; run on main pushes and the nightly schedule.
+    if: ${{ github.event_name != 'pull_request' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     strategy:
@@ -321,6 +358,8 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+    # Tier 2: skip on pull requests; run on main pushes and the nightly schedule.
+    if: ${{ github.event_name != 'pull_request' }}
     # Heavy tier (see the timeout policy above): the last-resort job backstop.
     # The family-run step below owns the hang tripwire, so a wedged suite fails
     # there with the always() cleanup and timing upload still running.
@@ -452,7 +491,8 @@ jobs:
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
-    if: always()
+    # Tier 2: skip on pull requests; run on main pushes and the nightly schedule.
+    if: ${{ always() && github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v6
       - name: Install CI prerequisites
@@ -502,7 +542,9 @@ jobs:
     # its GitHub behaviour loosens. The needed job is the fast coverage guard so
     # this decision lands early in the run, not at the end of it.
     needs: [test-coverage]
-    if: ${{ always() && github.server_url == 'https://github.com' }}
+    # Tier 2: skip on pull requests; the GitHub-only guard still applies on the
+    # main push and nightly schedule.
+    if: ${{ always() && github.server_url == 'https://github.com' && github.event_name != 'pull_request' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
