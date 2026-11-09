@@ -37,6 +37,12 @@ jobs:
           fi
           ln -sf "$(command -v python3)" /usr/local/bin/python
       - name: Verify no-mistakes signature and pipeline attestation
+        env:
+          # GitHub uses api.github.com; a Gitea forge exposes its API under its
+          # own server URL. The pinned action reads GITHUB_API_URL, so the GitHub
+          # path stays unchanged while a Gitea PR verifies its live body and head
+          # against the forge instead of relying on cached event payloads.
+          GITHUB_API_URL: ${{ github.server_url == 'https://github.com' && 'https://api.github.com' || format('{0}/api/v1', github.server_url) }}
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@f6441c96c352a18b9cadcaef6b6c7017e9ac3970 # v1.80.1
         with:
           exempt-authors: kunchenguid

@@ -668,9 +668,13 @@ SH
   # call shape stays env ... gh; only the fixture substitutes its own env and gh
   # shell functions, and the arm fixture uses the bash timeout mechanism so they
   # are reached in the same shell.
+  # Exported for the spawned production shell; ShellCheck cannot see that call.
+  # shellcheck disable=SC2329
   gh() {
     "$FORGE/../fakebin/gh" "$@"
   }
+  # Exported for the spawned production shell; ShellCheck cannot see that call.
+  # shellcheck disable=SC2329
   env() {
     case "${1:-}" in
       GH_PROMPT_DISABLED=1)
