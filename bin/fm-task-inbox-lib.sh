@@ -7,7 +7,8 @@
 # the self-describing doorbell line, and the watcher's re-ring ladder policy.
 # bin/fm-send.sh writes and rings locally, the host-local remote steer leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) writes idempotently and rings
-# on the remote host, bin/fm-watch.sh polls and re-rings, and the brief
+# on the remote host, bin/fm-watch.sh polls and re-rings, bin/fm-session-start.sh
+# surfaces unhandled records in a secondmate's own startup, and the brief
 # scaffold (bin/fm-brief.sh) tells the worker how to read and acknowledge;
 # none of them restates the format.
 #
@@ -366,6 +367,29 @@ fm_task_inbox_is_fire_and_forget() {  # <record-path>
     $0 == "delivery=fire-and-forget" { found=1 }
     END { exit(found ? 0 : 1) }
   ' "$rec"
+}
+
+# Print every unhandled record in one task inbox in sequence order, with its
+# exact body. The restart surface path needs no watcher ring and moves nothing;
+# a record already in handled/ is not printed, and the handled mv remains the
+# acknowledgement. This makes a steer recorded while the pane was down visible
+# when the worker restarts; the watcher re-ring stays a best-effort backstop.
+fm_task_inbox_surface_unhandled() {  # <state-dir> <task-id>
+  local dir f n
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  [ -d "$dir" ] || return 0
+  while IFS=$'\t' read -r n f; do
+    printf 'record %s\n' "$f"
+    printf -- '--- body ---\n'
+    fm_task_inbox_body "$f" || printf '(body unreadable)\n'
+    printf '\n'
+  done < <(
+    for f in "$dir"/*.msg; do
+      [ -e "$f" ] || continue
+      n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+      printf '%s\t%s\n' "$n" "$f"
+    done | sort -n -k1,1
+  )
 }
 
 # Oldest escalation-tracked unhandled record, or fail when none is due.

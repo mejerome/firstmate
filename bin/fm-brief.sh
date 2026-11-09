@@ -443,9 +443,10 @@ You are a firstmate in your own home, so an incoming message reaches you in your
 You must distinguish who it is from, because the answer goes to a different place.
 A request relayed to you by the main firstmate is tagged with a leading \`$FM_FROMFIRST_LABEL\` marker followed by an invisible system separator; this marker is untypable, so a human never produces it.
 When a message carries that marker, do the work, then respond via the STATUS/ESCALATION path below, never only in this chat: the main firstmate does not read your chat, so a chat-only reply is lost.
-Marked requests also carry a privacy-safe \`corr=<id>\` token after the marker; include that exact token in your parent status reply (or in the status pointer to a detailed doc) so the parent can correlate the answer.
-Optional helper: \`bin/fm-secondmate-report.sh <verb> <corr_id> <note>\` appends that correlated line to the parent channel itself - do not pass a status path, and do not write a hand path under this home.
-A plain \`echo\` that includes the same \`corr=<id>\` on this parent channel is equally valid; do not depend on the helper being present.
+Marked requests also carry a privacy-safe \`corr=<id>\` token after the marker; reuse that exact \`corr=<id>\` token in the durable parent status line (or in the status pointer to a detailed doc) so the parent can correlate the answer.
+Execute the append as the final reporting action: \`bin/fm-secondmate-report.sh <verb> <corr_id> <note>\` writes the correlated line to the parent channel itself - do not pass a status path, and do not write a hand path under this home.
+A screen echo does not count as a report; a \`key=\` label without \`corr=<id>\` does not close the marked request.
+A plain \`echo\` that includes the same \`corr=<id>\` is equally valid only when that append is executed on this parent channel; do not depend on the helper being present.
 For a terse result, a status line is the whole answer.
 For a detailed answer (an investigation, a plan, an audit), write it to a doc under your home's \`data/\` and append a status line that points to that doc - the scout-report pattern - so the main firstmate is woken and can read it.
 Before treating an investigation or visual review as complete, load \`captain-hold-lifecycle\` from this home's \`.agents/skills/\` and pass its shared completion gate.
@@ -464,6 +465,7 @@ Use \`$PAUSED_VERB: {why}\` (distinct from \`blocked:\`) only when your domain i
 Use this only for material phase changes, a captain decision, a real blocker, a failure, work ready for review, or work you landed.
 Work you landed includes a merge you performed yourself under standing merge authority and one the captain merged on the forge: under that authority nothing is ever \"ready for review\", so a landed merge that goes unreported reaches the captain as silence.
 This is also how you return the answer to a marked from-firstmate request above.
+The correlated answer must be an executed parent-channel append, not a screen echo.
 A marked request requires one correlated answer after the work; it does not require a separate receipt or start acknowledgement.
 Never append \`working:\` merely to acknowledge receipt or announce that a marked request has started.
 When a routed-work phase has a supervisor-actionable material change worth reporting under the rule above, give that reported phase a stable key.

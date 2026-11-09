@@ -700,8 +700,12 @@ test_secondmate_marked_request_reporting_contract() {
   assert_grep 'resolved [key=<work-slug>]' "$brief" \
     "secondmate charter lost resolved closure for a keyed material phase"
 
-  assert_grep 'include that exact token in your parent status reply' "$brief" \
+  assert_grep "reuse that exact \`corr=<id>\` token in the durable parent status line" "$brief" \
     "secondmate charter lost correlated parent results"
+  assert_grep 'Execute the append as the final reporting action' "$brief" \
+    "secondmate charter did not require the append to be executed"
+  assert_grep 'A screen echo does not count as a report' "$brief" \
+    "secondmate charter did not reject a pane-only echo"
   assert_grep 'bin/fm-secondmate-report.sh <verb> <corr_id> <note>' "$brief" \
     "secondmate charter lost the mechanical helper invocation"
   assert_grep 'do not pass a status path' "$brief" \

@@ -294,7 +294,7 @@ done
 # The ordered stage list is the contract behind the truncation banner: the child
 # names the stage it is entering, and the parent reports every stage at or after
 # that one as never emitted. Keep it in the exact order the digest prints.
-SESSION_START_STAGES='lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step'
+SESSION_START_STAGES='lock bootstrap wake-queue steering-inbox supervision-instructions read-once fleet-state network-checks context next-step'
 
 stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
   [ -n "${FM_SESSION_START_STAGE_FILE:-}" ] || return 0
@@ -396,6 +396,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+# shellcheck source=bin/fm-task-inbox-lib.sh
+. "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
 # A secondmate home is a firstmate instance, but its session-start digest is a
 # WORKER's own context, not the captain's fleet view: everything printed here is
@@ -408,8 +410,17 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 # to a mate's own startup. bin/fm-primary-scope-lib.sh owns the marker test, and
 # FM_SESSION_START_FULL_DIGEST=1 is the one-shot escape that prints the full
 # digest anyway.
+SECONDMATE_HOME=0
+if fm_root_is_secondmate_home "$FM_HOME"; then
+  SECONDMATE_HOME=1
+fi
+SECONDMATE_HOME_ID=
+if [ "$SECONDMATE_HOME" -eq 1 ]; then
+  IFS= read -r SECONDMATE_HOME_ID < "$FM_HOME/.fm-secondmate-home" || SECONDMATE_HOME_ID=
+  SECONDMATE_HOME_ID=${SECONDMATE_HOME_ID//[[:space:]]/}
+fi
 SECONDMATE_CHECKPOINT=0
-if fm_root_is_secondmate_home "$FM_HOME" && [ "${FM_SESSION_START_FULL_DIGEST:-0}" != 1 ]; then
+if [ "$SECONDMATE_HOME" -eq 1 ] && [ "${FM_SESSION_START_FULL_DIGEST:-0}" != 1 ]; then
   SECONDMATE_CHECKPOINT=1
 fi
 
@@ -1266,6 +1277,24 @@ else
   else
     printf '(no queued wakes)\n'
   fi
+fi
+
+# --- 3b. steering-inbox surface ---------------------------------------------
+# A secondmate's own startup is a worker restart, not a watcher poll. Surface
+# every unhandled record body in its own inbox before supervision instructions,
+# so a steer written while its pane was down is read without a re-ring or a
+# manual re-send. The helper moves nothing; the handled mv is still the ack.
+if [ "$SECONDMATE_HOME" -eq 1 ]; then
+  stage steering-inbox
+  reemit_optional_begin 'steering inbox'
+  section "STEERING INBOX"
+  INBOX_OUT=$(fm_task_inbox_surface_unhandled "$STATE" "$SECONDMATE_HOME_ID" 2>&1) || INBOX_OUT=
+  if [ -n "$INBOX_OUT" ]; then
+    printf '%s\n' "$INBOX_OUT"
+  else
+    printf '(no unhandled firstmate instructions)\n'
+  fi
+  reemit_optional_end
 fi
 
 # --- 4. supervision operating instructions ----------------------------------
