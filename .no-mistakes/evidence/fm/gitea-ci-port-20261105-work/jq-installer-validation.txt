@@ -1,0 +1,22 @@
+=== jq Installer Validation ===
+
+1. fm-install-jq.sh pinned installer verification:
+   - Downloads jq 1.7.1 from official jqlang/jq release
+   - Verifies SHA-256 checksum against pinned values
+   - Supports: linux amd64, linux arm64, darwin amd64, darwin arm64
+   - Installs to target directory and verifies executable runs
+   - Test run: SUCCESS (jq-1.7.1 installed and verified)
+
+2. fm-ci-prerequisites.sh jq fallback logic:
+   - Checks jq version: needs major >= 1 AND minor >= 7
+   - jq 1.6 correctly rejected by version check
+   - jq 1.7 correctly accepted
+   - On root/apt-get system: tries apt-get jq first
+   - If distro jq fails or is <1.7: falls back to fm-install-jq.sh
+   - On non-root system: installs pinned jq to RUNNER_TEMP/fm-ci-bin
+   - Test run with jq 1.7 already present: no-op, passes
+
+3. jq version detection:
+   - Parses "jq-1.6" -> major=1, minor=6 -> rejected
+   - Parses "jq-1.7" -> major=1, minor=7 -> accepted
+   - Parses "jq-1.7.1" -> major=1, minor=7 -> accepted

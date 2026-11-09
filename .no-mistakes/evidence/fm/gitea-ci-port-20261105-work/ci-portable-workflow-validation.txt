@@ -1,0 +1,60 @@
+=== CI Workflow Portability Validation ===
+
+1. Single portable workflow for GitHub and Gitea
+-----------------------------------------------
+All standard jobs use forge-portable runs-on expression:
+  lint:         ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+  test-coverage: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'fm-ci' }}
+  tests-portable-parallel-1/2: same expression
+  tests-portable-serial: same expression
+  tests-herdr: same expression
+  tests-timing-aggregate: same expression
+  invariants: same expression
+  macos-stock-bash: macos-latest (GitHub-only, guarded by needs+if)
+
+2. Matrix uses explicit include with explicit totals (no strategy.job-total)
+   - Verified: no ci.yml value reads strategy.job-total
+   - Each matrix entry carries its own 'partitions'/'shards' count
+
+3. Artifact steps skip on non-GitHub forges
+   - Every upload/download-artifact@v4 step has:
+     if: ${{ always() && github.server_url == 'https://github.com' }}
+     continue-on-error: true
+
+4. Distribution jq installed first, pinned fallback
+----------------------------------------------------
+   - fm-ci-prerequisites.sh checks jq version (needs 1.7+)
+   - Installs via apt-get first, falls back to pinned fm-install-jq.sh
+   - Pinned fm-install-jq.sh verified: downloads jq 1.7.1, checks SHA-256
+
+5. Tier 1 PR gate (changed-files lint + invariants + coverage guard)
+---------------------------------------------------------------------
+   PR-triggered steps in lint job:
+     - "Lint changed files" step: if github.event_name == 'pull_request'
+       - ShellCheck on changed bin/*.sh and tests/*.sh files
+       - actionlint on changed workflow files
+     - "Lint canonical partition" step: if github.event_name != 'pull_request'
+   
+   test-coverage: runs on every event (no conditional)
+   invariants: runs on every event (no conditional)
+   All Tier 2 jobs skip on PRs (see below)
+
+6. Tier 2 on main push and nightly (full suite)
+-------------------------------------------------
+   Nightly schedule: cron '0 3 * * *'
+   workflow_dispatch enabled
+   Jobs that skip on pull_request:
+     tests-portable-parallel-1
+     tests-portable-parallel-2
+     tests-portable-serial
+     tests-herdr
+     tests-timing-aggregate
+     macos-stock-bash
+
+7. Gitea attestation (no-mistakes-required.yml)
+------------------------------------------------
+   - Forge-portable runs-on expression
+   - Installs python3 on bare runner if needed
+   - GITHUB_API_URL set to correct forge API:
+     GitHub: https://api.github.com
+     Gitea: $server_url/api/v1
