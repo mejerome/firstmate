@@ -23,6 +23,11 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# The report-publication case uses mode bits to prove an unwritable report
+# directory; a root job user bypasses those bits, so run the whole fixture as an
+# unprivileged user when this suite is launched as root.
+if fm_test_reexec_unprivileged "$@"; then exit 0; fi
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
 
@@ -157,11 +162,11 @@ hold_publish_lock() {  # <home>
 # await_pid_exit <pid> <tenths>: true when the process exits inside the bound.
 await_pid_exit() {  # <pid> <tenths>
   local waited=0
-  while kill -0 "$1" 2>/dev/null && [ "$waited" -lt "$2" ]; do
+  while fm_test_process_running "$1" && [ "$waited" -lt "$2" ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  ! kill -0 "$1" 2>/dev/null
+  ! fm_test_process_running "$1"
 }
 
 # --- tests -------------------------------------------------------------------
@@ -220,11 +225,11 @@ EOF
     || fail "harvest did not durably acknowledge the result it printed"
   kill "$claimant" 2>/dev/null || true
   wait "$claimant" 2>/dev/null || true
-  while kill -0 "$worker_pid" 2>/dev/null && [ "$waited" -lt 50 ]; do
+  while fm_test_process_running "$worker_pid" && [ "$waited" -lt 50 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  ! kill -0 "$worker_pid" 2>/dev/null \
+  ! fm_test_process_running "$worker_pid" \
     || fail "the worker did not settle after harvest acknowledged its result"
   [ ! -s "$home/state/.wake-queue" ] \
     || fail "a result harvest acknowledged also queued a wake: $(cat "$home/state/.wake-queue")"
@@ -264,7 +269,7 @@ EOF
     FM_FAKE_BOOTSTRAP_OUT='MISSING: some-tool (install: brew install some-tool)' \
     run_stage "$home" "$root" start --locked 0 --harvest-pid "$claimant"
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the crash-window worker never published"
-  kill -0 "$claimant" 2>/dev/null \
+  fm_test_process_running "$claimant" \
     || fail "the claimant died before the worker published"
   kill "$claimant" 2>/dev/null || true
   wait "$claimant" 2>/dev/null || true
@@ -278,6 +283,13 @@ EOF
 
 test_a_report_publication_failure_is_failed_and_still_wakes() {
   local rec home root log claimant output state
+  # Mode bits cannot deny a root job user, and the checkout may not be reachable
+  # by an unprivileged re-exec. In that capability gap the fixture is skipped,
+  # not reported as a product failure.
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: root_job: report-directory mode bits cannot deny a root job user\n'
+    return 0
+  fi
   rec=$(new_world report-publication-failure)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -838,11 +850,11 @@ EOF
   await_worker_record "$home"
   worker=$(sed -n 's/^pid=//p' "$home/state/.startup-network.status")
   waited=0
-  while [ ! -f "$log" ] && [ "$waited" -lt 50 ]; do
+  while [ ! -f "$log" ] && [ "$waited" -lt 150 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  [ -f "$log" ] || fail "the detached worker never started its sweep"
+  [ -f "$log" ] || fail "the detached worker never started its sweep: worker stderr: $(cat "$home/state/.startup-network.worker.err" 2>/dev/null); status: $(sed -n '1,6p' "$home/state/.startup-network.status" 2>/dev/null | tr '\n' ' ')"
   holder=$(hold_publish_lock "$home")
   await_pid_exit "$worker" 100 \
     || fail "the worker was still alive 10s after its sweep finished against a held publish lock (2s delivery budget)"

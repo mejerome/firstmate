@@ -62,7 +62,19 @@ exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
 SH
 chmod +x "$FAKEBIN/fake-ssh"
 
+# remote_env [--bound <seconds>] <command...>
+# --bound wraps the command in timeout. `fm-procevent.sh start` waits for its
+# runner by design, so a foreground start with no bound holds the runner with no
+# output when the fixture's induced condition does not occur - one such start sat
+# silent for 87 minutes on the forge. A bound turns that into a fast failure.
 remote_env() {
+  local bound=
+  if [ "${1:-}" = --bound ]; then
+    bound=${2:-120}
+    shift 2
+  fi
+  local -a bounded=()
+  [ -z "$bound" ] || bounded=(timeout "$bound")
   FM_HOME="$PARENT" \
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
@@ -71,6 +83,7 @@ remote_env() {
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
   FM_REMOTE_REPLY_WAIT_SECONDS="${FM_REMOTE_REPLY_WAIT_SECONDS:-10}" \
+  ${bounded[@]+"${bounded[@]}"} \
   "$@"
 }
 
@@ -407,7 +420,7 @@ retry_destination="$PARENT/data/remote-secondmates/ios/data/reply/retry.md"
 retry_decoy="$TMP_ROOT/retry-decoy.md"
 printf 'local decoy\n' > "$retry_decoy"
 ln -s "$retry_decoy" "$retry_destination"
-remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 \
+remote_env --bound 120 "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 \
   || fail "the retryable document line was not captured"
 RESULT_EIGHT="$PARENT/state/procevent-inbox/$SID.8.result"
 assert_absent "$PARENT/state/procevent-inbox/$SID.8.handled" \
@@ -603,7 +616,7 @@ SH
   printf 'exec %q "$@"\n' "$REAL_AWK"
 } > "$EXTRACT_FAIL_BIN/awk"
 chmod +x "$EXTRACT_FAIL_BIN/awk"
-PATH="$EXTRACT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
+PATH="$EXTRACT_FAIL_BIN:$PATH" remote_env --bound 120 "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true
 RESULT_EXTRACTFAIL="$PARENT/state/procevent-inbox/$SID.$GEN.result"
 assert_present "$RESULT_EXTRACTFAIL" "the extraction-failure delta was not captured"
@@ -628,34 +641,38 @@ cmp -s "$REMOTE/data/reply/extractfail.md" "$PARENT/data/remote-secondmates/ios/
 mirrored_cursor_is_current "the recovered extraction-failure delta did not advance the cursor"
 pass "a failed pointer extraction never commits a partial delta"
 
-# A mirror write that cannot complete must fail loudly rather than leave blank
-# or partial content behind and advance the cursor past status bytes nobody
-# ever received. The delta stays uncommitted and applies in full once the
-# stream is writable again.
-printf '# write-failure probe\n' > "$REMOTE/data/reply/writefail.md"
-GEN=$((GEN + 1))
-stop_reply_listener || fail "the reply listener did not stop before the unwritable-stream capture"
-printf 'done [key=write-failure]: probe report=data/reply/writefail.md\n' \
-  >> "$REMOTE/state/parent-replies.status"
-writefail_cursor_before=$(cat "$PARENT/state/remote-replies/ios.cursor")
-cp "$PARENT/state/ios.status" "$TMP_ROOT/ios-status-before-writefail"
-chmod 444 "$PARENT/state/ios.status"
-remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 || true
-RESULT_WRITEFAIL="$PARENT/state/procevent-inbox/$SID.$GEN.result"
-assert_present "$RESULT_WRITEFAIL" "the unwritable-stream delta was not captured"
-assert_absent "$PARENT/state/procevent-inbox/$SID.$GEN.handled" \
-  "a capture whose mirror write failed was acknowledged anyway"
-[ "$(cat "$PARENT/state/remote-replies/ios.cursor")" = "$writefail_cursor_before" ] \
-  || fail "a failed mirror write advanced the cursor past dropped status content"
-chmod 644 "$PARENT/state/ios.status"
-cmp -s "$TMP_ROOT/ios-status-before-writefail" "$PARENT/state/ios.status" \
-  || fail "a failed mirror write left partial or blank content on the parent stream"
-remote_env "$ADAPTER" handle ios "$GEN" "$RESULT_WRITEFAIL" >/dev/null \
-  || fail "the delta did not apply once the parent stream was writable again"
-assert_grep 'report=data/remote-secondmates/ios/data/reply/writefail.md' "$PARENT/state/ios.status" \
-  "the recovered delta did not mirror its rewritten pointer"
-mirrored_cursor_is_current "the recovered delta did not advance the cursor"
-pass "a failed mirror write never drops status content or advances the cursor"
+if fm_test_permission_enforced; then
+  # A mirror write that cannot complete must fail loudly rather than leave blank
+  # or partial content behind and advance the cursor past status bytes nobody
+  # ever received. The delta stays uncommitted and applies in full once the
+  # stream is writable again.
+  printf '# write-failure probe\n' > "$REMOTE/data/reply/writefail.md"
+  GEN=$((GEN + 1))
+  stop_reply_listener || fail "the reply listener did not stop before the unwritable-stream capture"
+  printf 'done [key=write-failure]: probe report=data/reply/writefail.md\n' \
+    >> "$REMOTE/state/parent-replies.status"
+  writefail_cursor_before=$(cat "$PARENT/state/remote-replies/ios.cursor")
+  cp "$PARENT/state/ios.status" "$TMP_ROOT/ios-status-before-writefail"
+  chmod 444 "$PARENT/state/ios.status"
+  remote_env --bound 120 "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 || true
+  RESULT_WRITEFAIL="$PARENT/state/procevent-inbox/$SID.$GEN.result"
+  assert_present "$RESULT_WRITEFAIL" "the unwritable-stream delta was not captured"
+  assert_absent "$PARENT/state/procevent-inbox/$SID.$GEN.handled" \
+    "a capture whose mirror write failed was acknowledged anyway"
+  [ "$(cat "$PARENT/state/remote-replies/ios.cursor")" = "$writefail_cursor_before" ] \
+    || fail "a failed mirror write advanced the cursor past dropped status content"
+  chmod 644 "$PARENT/state/ios.status"
+  cmp -s "$TMP_ROOT/ios-status-before-writefail" "$PARENT/state/ios.status" \
+    || fail "a failed mirror write left partial or blank content on the parent stream"
+  remote_env "$ADAPTER" handle ios "$GEN" "$RESULT_WRITEFAIL" >/dev/null \
+    || fail "the delta did not apply once the parent stream was writable again"
+  assert_grep 'report=data/remote-secondmates/ios/data/reply/writefail.md' "$PARENT/state/ios.status" \
+    "the recovered delta did not mirror its rewritten pointer"
+  mirrored_cursor_is_current "the recovered delta did not advance the cursor"
+  pass "a failed mirror write never drops status content or advances the cursor"
+else
+  printf 'skip: root_job: unwritable-mirror-stream-needs-a-job-user-that-mode-bits-deny needs a job user that mode bits deny\n'
+fi
 
 # A source line remains the replay identity even when document availability
 # changes between a successful mirror append and a failed ingestion commit.
@@ -678,7 +695,7 @@ SH
   printf 'exec %q "$@"\n' "$REAL_MKTEMP"
 } > "$RECEIPT_FAIL_BIN/mktemp"
 chmod +x "$RECEIPT_FAIL_BIN/mktemp"
-PATH="$RECEIPT_FAIL_BIN:$PATH" remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" \
+PATH="$RECEIPT_FAIL_BIN:$PATH" remote_env --bound 120 "$ROOT/bin/fm-procevent.sh" start "$SID" \
   >/dev/null 2>&1 || true
 RESULT_REPLAY_COMMIT="$PARENT/state/procevent-inbox/$SID.$GEN.result"
 assert_present "$RESULT_REPLAY_COMMIT" "the replay-identity delta was not captured"

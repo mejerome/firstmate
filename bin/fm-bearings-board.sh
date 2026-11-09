@@ -348,7 +348,9 @@ source_owner() {  # <source-id>
 # after reconcile returns. Wait for that claim rather than reporting the race.
 await_source_owner() {  # <source-id>
   local owner i=0
-  while [ "$i" -lt 50 ]; do
+  # A loaded runner can delay the detached listener's claim past the old 5s
+  # window; keep the wait bounded but give the measured workload headroom.
+  while [ "$i" -lt 150 ]; do
     owner=$(source_owner "$1")
     [ "$owner" != live ] || { printf '%s\n' "$owner"; return 0; }
     sleep 0.1

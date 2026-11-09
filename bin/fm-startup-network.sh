@@ -297,7 +297,7 @@ EOF
   set -m 2>/dev/null || true
   nohup "$SCRIPT_DIR/fm-startup-network.sh" run --locked "$locked" --lock-pid "$lock_pid" \
     --generation "$generation" \
-    >/dev/null 2>&1 </dev/null &
+    >/dev/null 2>"$STATE/.startup-network.worker.err" </dev/null &
   worker_pid=$!
   if ! write_atomic "$STATUS_FILE" <<EOF
 state=running

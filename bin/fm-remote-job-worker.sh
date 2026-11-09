@@ -1234,6 +1234,10 @@ worker_supervisor_shutdown() {
 
 worker_supervise_linux() {
   local account_home child_status started failures=0 restarts=0 backoff
+  # The Linux start path owns this worker's process group. Disable job control
+  # before respawning the serving child so it stays in that group even when the
+  # launching shell exported monitor mode in SHELLOPTS.
+  set +m
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; return 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; return 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; return 1; }

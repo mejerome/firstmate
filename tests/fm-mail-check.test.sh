@@ -22,6 +22,8 @@ set -u
 CHECK="$ROOT/bin/fm-mail-check.sh"
 TMP_ROOT=$(fm_test_tmproot fm-mail-check)
 
+if fm_test_reexec_unprivileged "$@"; then exit 0; fi
+
 # Pin the watcher bound and clear any ambient mail config so the poll's
 # readiness decision comes from the fixture .env alone. The check binary is an
 # explicit argument so the missing-mail-plane case runs a copy without fm-mail.sh.

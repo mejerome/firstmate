@@ -89,7 +89,7 @@ BRANCH_PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" \
   WATCH_PLUGIN="$repo/.pi/extensions/fm-primary-pi-watch.ts" \
   FM_HOME="$home" FM_REAL_ROOT="$ROOT" FM_WATCH_ROOT="$repo" \
   FM_LIVE_WATCH_LOG="$TMP_ROOT/live-watch.log" FM_LIVE_WATCH_TRIGGER="$TMP_ROOT/live-watch.trigger" \
-  PI_CODING_AGENT_DIR="$agentdir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+  PI_CODING_AGENT_DIR="$agentdir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -287,7 +287,7 @@ BRANCH_PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" \
   FM_HOME="$errorhome" FM_REAL_ROOT="$ROOT" FM_WATCH_ROOT="$repo" \
   FM_LIVE_WATCH_LOG="$TMP_ROOT/error-watch.log" FM_LIVE_WATCH_TRIGGER="$TMP_ROOT/error-watch.trigger" \
   PI_CODING_AGENT_DIR="$erroragentdir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-  node --input-type=module > "$TMP_ROOT/error-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/error-output" 2>&1 <<'EOF'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -454,7 +454,7 @@ cat > "$modeldir/models.json" <<'JSON'
 }
 JSON
 PI_PACKAGE_DIR="$PI_PACKAGE_DIR" PI_CODING_AGENT_DIR="$modeldir" FM_LIVE_SESSIONS="$TMP_ROOT/model-sessions" \
-  node --input-type=module > "$TMP_ROOT/model-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/model-output" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const pkg = pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href;
@@ -557,7 +557,7 @@ cat > "$effortdir/models.json" <<'JSON'
 }
 JSON
 PI_PACKAGE_DIR="$PI_PACKAGE_DIR" PI_CODING_AGENT_DIR="$effortdir" FM_LIVE_SESSIONS="$TMP_ROOT/effort-sessions" \
-  node --input-type=module > "$TMP_ROOT/effort-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/effort-output" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -691,7 +691,7 @@ pass "real Pi SDK $PI_VERSION reports its own supported effort levels and applie
 # reopen, and keep it out of model context. No model is selected or prompted.
 PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" DELIVERY_DIR="$TMP_ROOT/delivery-sessions" \
   DELIVERY_AGENT_DIR="$TMP_ROOT/delivery-agent-dir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-  node --input-type=module > "$TMP_ROOT/delivery-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/delivery-output" 2>&1 <<'EOF'
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -823,7 +823,7 @@ WATCH_PLUGIN="$repo/.pi/extensions/fm-primary-pi-watch.ts" \
   FM_LIVE_WATCH_LOG="$TMP_ROOT/stream-watch.log" FM_LIVE_WATCH_TRIGGER="$TMP_ROOT/stream-watch.trigger" \
   FM_LIVE_SESSIONS="$TMP_ROOT/stream-sessions" \
   PI_CODING_AGENT_DIR="$streamdir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-  node --input-type=module > "$TMP_ROOT/stream-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/stream-output" 2>&1 <<'EOF'
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1003,7 +1003,7 @@ cp "$streamdir/models.json" "$retrydir/models.json"
 BRANCH_PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" \
   FM_HOME="$retryhome" FM_ROOT_OVERRIDE="$ROOT" RETRY_CASE="$retry_case" \
   PI_CODING_AGENT_DIR="$retrydir" PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-  node --input-type=module > "$TMP_ROOT/retry-output" 2>&1 <<'EOF'
+  timeout 300 node --input-type=module > "$TMP_ROOT/retry-output" 2>&1 <<'EOF'
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";

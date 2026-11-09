@@ -1681,6 +1681,12 @@ ${context.command}
     // getEntries() here loses the captain request that the next wake may answer.
     // Stage it verbatim and remember the future persisted index for turn_end's
     // duplicate suppression. Operational extension injections are not dialog.
+    // A custom message start (an extension-triggered turn) carries no captain
+    // prompt at all, so only a custom start is skipped here. Testing for the
+    // custom discriminant rather than requiring "user" keeps an event that
+    // carries a prompt but no messageType working, which is the shape callers
+    // built against the pre-1.5.0 API still send.
+    if (event.messageType === "custom") return;
     const prompt = event.prompt;
     processingOpenedThisRun = queuedProcessingContent !== null && prompt === queuedProcessingContent;
     const trimmed = prompt.trim();

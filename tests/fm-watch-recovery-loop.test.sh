@@ -95,7 +95,7 @@ SH
     PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" \
       FM_STATE_OVERRIDE="$home/state" PATH="$fakebin:$PATH" \
       FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-      node --input-type=module 2>&1 <<'EOF'
+      timeout 150 node --input-type=module 2>&1 <<'EOF'
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -151,6 +151,13 @@ process.exit(0);
 EOF
   )
   status=$?
+  # The script's own 75s deadline only starts after the watcher tool call
+  # returns, so an execute() that never resolves waits forever. The bound turns
+  # that into a named failure instead of holding the runner: one such wait kept
+  # a job silent for 26 minutes on the forge.
+  if [ "$status" -eq 124 ]; then
+    fail "the recovery-loop fixture exceeded its 150s bound inside the watcher tool call"
+  fi
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '%s\n' "$out"
   fi

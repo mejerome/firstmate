@@ -35,7 +35,7 @@ trap orphan_cleanup EXIT
 
 track() { TRACKED_PIDS+=("$1"); }
 
-alive() { kill -0 "$1" 2>/dev/null; }
+alive() { fm_test_process_running "$1"; }
 
 pgid_of() { ps -p "$1" -o pgid= 2>/dev/null | tr -d '[:space:]'; }
 

@@ -54,15 +54,23 @@ URL="https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${ARCHIVE
 TMP=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-actionlint.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
-DOWNLOAD_ATTEMPTS=6
+# A transient forge/gateway window can outlast a short exponential ladder.
+# Keep the retries bounded and the SHA-256 pin authoritative: sixteen attempts
+# with a capped backoff and deterministic jitter ride a minutes-long outage
+# without letting a permanently missing release wait forever.
+DOWNLOAD_ATTEMPTS=16
+DOWNLOAD_MAX_SLEEP=60
 download_attempt=1
 while ! curl -fsSL "$URL" -o "$TMP/$ARCHIVE"; do
-  [ "$download_attempt" -lt "$DOWNLOAD_ATTEMPTS" ] || {
+  if [ "$download_attempt" -ge "$DOWNLOAD_ATTEMPTS" ]; then
     printf 'fm-install-actionlint.sh: download failed after %s attempts\n' "$DOWNLOAD_ATTEMPTS" >&2
     exit 1
-  }
+  fi
   printf 'fm-install-actionlint.sh: download attempt %s failed; retrying\n' "$download_attempt" >&2
-  sleep $((1 << (download_attempt - 1)))
+  backoff=$((1 << (download_attempt - 1)))
+  [ "$backoff" -le "$DOWNLOAD_MAX_SLEEP" ] || backoff=$DOWNLOAD_MAX_SLEEP
+  jitter=$((download_attempt % 3))
+  sleep $((backoff + jitter))
   download_attempt=$((download_attempt + 1))
 done
 

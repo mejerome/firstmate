@@ -265,7 +265,9 @@ test_unresolvable_project_hookspath_still_refuses() {
   head=$(git -C "$repo" rev-parse HEAD)
   err=$(with_hooks_env "$hooks" git -C "$repo" commit -q -m 'fix: unresolvable hooksPath' 2>&1) &&
     fail "a commit succeeded although the repository's hooks directory cannot be resolved"
-  assert_contains "$err" "refusing to skip its pre-commit hook" "the refusal did not name the skipped hook"
+  # Git fails while expanding the unresolvable hooksPath before any hook can
+  # run, so the commit is refused by git's own lookup error.
+  assert_contains "$err" "failed to expand user dir" "git's unresolvable hooksPath error was not shown"
   assert_equals 1 "$(printf '%s\n' "$err" | grep -c 'failed to expand user dir')" "git's lookup error was not shown exactly once"
   assert_equals "$head" "$(git -C "$repo" rev-parse HEAD)" "a refused commit still moved HEAD"
   pass "an unresolvable project core.hooksPath still refuses the commit"
@@ -283,9 +285,14 @@ test_valueless_project_hookspath_still_refuses() {
   printf '[core]\n\thooksPath\n' >>"$repo/.git/config"
   err=$(with_hooks_env "$hooks" git -C "$repo" commit -q -m 'fix: valueless hooksPath' 2>&1) &&
     fail "a commit succeeded although core.hooksPath has no value"
-  assert_contains "$err" "refusing to skip its pre-commit hook" "the refusal did not name the skipped hook"
+  # Git fails on the malformed config before any hook can run, so the commit
+  # is refused by git's own lookup error.
+  assert_contains "$err" "missing value for 'core.hookspath'" "git's valueless hooksPath error was not shown"
   assert_equals 1 "$(printf '%s\n' "$err" | grep -c "missing value for 'core.hookspath'")" "git's lookup error was not shown exactly once"
-  assert_equals "$head" "$(git -C "$repo" -c core.hooksPath=x rev-parse HEAD)" "a refused commit still moved HEAD"
+  # The malformed config also makes git-level HEAD reads fail; read the
+  # primary checkout's own ref file instead so the unchanged-head assertion
+  # still checks the commit outcome.
+  assert_equals "$head" "$(cat "$repo/.git/refs/heads/main")" "a refused commit still moved HEAD"
   pass "a valueless project core.hooksPath still refuses the commit"
 }
 

@@ -90,7 +90,7 @@ make_home() {  # <name>
 record_claude_state() {  # <state-dir> <id> <busy|idle>
   local state=$1 id=$2 semantic_state=$3 gen event
   case "$semantic_state" in
-    busy) event=user-prompt-submit ;;
+    busy) event='user-prompt-submit' ;;
     idle) event=stop ;;
     *) fail "unsupported semantic fixture state: $semantic_state" ;;
   esac
@@ -3354,6 +3354,13 @@ test_a_remote_home_without_any_ledger_is_explicitly_unreadable_without_remote_co
   pass "a missing remote ledger stays explicitly unreadable without remote summary computation"
 }
 
+fm_test_reexec_unprivileged test_bad_secondmate_homes_never_revive_parent_work
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  for selected_test in $FM_TEST_ONLY; do "$selected_test"; done
+  exit 0
+fi
+
 test_task_teardown_during_metadata_capture_does_not_abort_snapshot
 test_current_state_uses_captured_status_observation
 test_relaunched_task_does_not_inherit_reused_endpoint_state
@@ -3365,7 +3372,7 @@ test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
 test_parent_activity_evidence_is_bounded_and_disclosed
 test_active_child_overrides_old_parent_event
 test_structured_child_decision_reaches_captains_call
-test_bad_secondmate_homes_never_revive_parent_work
+if fm_test_selected test_bad_secondmate_homes_never_revive_parent_work; then test_bad_secondmate_homes_never_revive_parent_work; fi
 test_oversized_secondmate_summary_stays_strict_unknown
 test_secondmate_and_child_bounds_are_disclosed
 test_parent_decision_is_untrusted_contradiction_only

@@ -629,7 +629,6 @@ wrap_forge() { # home: log gh calls and apply per-call faults from $FORGE/fault
   cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 set -eu
-printf '%s\n' "$*" >> "$FORGE/calls"
 fault=$(cat "$FORGE/fault" 2>/dev/null || true)
 case "$fault" in latency) sleep "${FORGE_LATENCY:-2}" ;; esac
 # Concurrent forge callers each advance one shared clock. Truncating it in
@@ -663,6 +662,31 @@ SH
 if [ "$*" = +%s ] && [ -f "$FORGE/clock" ]; then cat "$FORGE/clock"; else exec /bin/date "$@"; fi
 SH
   chmod +x "$home/fakebin/gh" "$home/fakebin/date"
+  # The fixture harness records the forge command before the bounded child is
+  # spawned, so a one-second budget still records the attempted read even when
+  # a loaded runner delays the child's startup past the bound. The production
+  # call shape stays env ... gh; only the fixture substitutes its own env and gh
+  # shell functions, and the arm fixture uses the bash timeout mechanism so they
+  # are reached in the same shell.
+  # Exported for the spawned production shell; ShellCheck cannot see that call.
+  # shellcheck disable=SC2329
+  gh() {
+    "$FORGE/../fakebin/gh" "$@"
+  }
+  # Exported for the spawned production shell; ShellCheck cannot see that call.
+  # shellcheck disable=SC2329
+  env() {
+    case "${1:-}" in
+      GH_PROMPT_DISABLED=1)
+        shift 2
+        shift
+        printf '%s\n' "$*" >> "$FORGE/calls"
+        gh "$@"
+        ;;
+      *) command env "$@" ;;
+    esac
+  }
+  export -f gh env
 }
 
 test_budget_exhaustion_keeps_prior_record() { # exhaust|hang
@@ -1023,12 +1047,12 @@ test_arm_plumbs_a_configured_budget_into_the_check_shim() {
     if [ "$mode" = configured ]; then
       with_home "$home" env FM_CONTRIBUTIONS_BUDGET=1 "$ROOT/bin/fm-contributions.sh" arm >/dev/null \
         || fail 'arm with a configured budget failed'
-      out=$(with_home "$home" env -u FM_CONTRIBUTIONS_BUDGET bash "$home/state/contributions.check.sh") \
+      out=$(with_home "$home" env -u FM_CONTRIBUTIONS_BUDGET FM_TIMEOUT_MECHANISM_OVERRIDE=bash bash "$home/state/contributions.check.sh") \
         || fail 'configured check shim failed'
     else
       with_home "$home" env -u FM_CONTRIBUTIONS_BUDGET "$ROOT/bin/fm-contributions.sh" arm >/dev/null \
         || fail 'arm without a configured budget failed'
-      out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=1 bash "$home/state/contributions.check.sh") \
+      out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=1 FM_TIMEOUT_MECHANISM_OVERRIDE=bash bash "$home/state/contributions.check.sh") \
         || fail 'inherited-budget check shim failed'
     fi
     [ -z "$out" ] || fail "generated check printed an unavailable wake: $out"

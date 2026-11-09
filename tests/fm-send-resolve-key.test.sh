@@ -789,6 +789,12 @@ test_stamped_close_line_stays_within_the_status_line_cap() {
 }
 
 test_failed_close_recovery_command_is_shell_safe() {
+  # The induced failure is a mode-bit denial on the status file, which a root
+  # job user ignores: the append then succeeds and no close failure is surfaced.
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: failed-close-recovery-command-is-shell-safe needs a job user that mode bits deny\n'
+    return 0
+  fi
   local dir fb log home err marker answer rc diagnostic manual out
   dir="$TMP_ROOT/manual-close"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
@@ -905,27 +911,28 @@ test_decision_answer_partition_relocates_under_the_record() {
   pass "fm-send --resolve-key: a decision answer refuses the attended branch before sending, a blocked: key stays steering, and the away-posture record relocates the answer"
 }
 
-test_answer_send_closes_open_decision
-test_answer_close_is_self_announced
-test_separate_resolve_key_answers_do_not_rewake
-test_colon_first_key_position_is_answerable
-test_answer_starts_work_never_orphans
-test_routine_steer_never_closes
-test_not_open_key_refuses_before_send
-test_failed_ring_still_closes_at_enqueue
-test_failed_enqueue_does_not_close
-test_multiple_keys_close_together
-test_multiple_keys_close_after_fold_is_self_announced
-test_local_secondmate_answer_marked_and_closed
-test_remote_secondmate_answer_closes_locally
-test_remote_reply_corr_tag_does_not_block_resolve_key
-test_remote_transport_failure_does_not_close
-test_flag_misuse_refuses
-test_reserved_pending_reply_key_closes_through_resolve_key
-test_unrelated_writer_cannot_close_or_hijack_reserved_key
-test_unclosable_reserved_key_refuses_before_send
-test_long_decision_key_refuses_before_send
-test_stamped_close_line_stays_within_the_status_line_cap
-test_failed_close_recovery_command_is_shell_safe
-test_remote_reserved_pending_reply_key_closes_locally
-test_decision_answer_partition_relocates_under_the_record
+fm_test_reexec_unprivileged test_failed_close_recovery_command_is_shell_safe
+if fm_test_selected test_answer_send_closes_open_decision; then test_answer_send_closes_open_decision; fi
+if fm_test_selected test_answer_close_is_self_announced; then test_answer_close_is_self_announced; fi
+if fm_test_selected test_separate_resolve_key_answers_do_not_rewake; then test_separate_resolve_key_answers_do_not_rewake; fi
+if fm_test_selected test_colon_first_key_position_is_answerable; then test_colon_first_key_position_is_answerable; fi
+if fm_test_selected test_answer_starts_work_never_orphans; then test_answer_starts_work_never_orphans; fi
+if fm_test_selected test_routine_steer_never_closes; then test_routine_steer_never_closes; fi
+if fm_test_selected test_not_open_key_refuses_before_send; then test_not_open_key_refuses_before_send; fi
+if fm_test_selected test_failed_ring_still_closes_at_enqueue; then test_failed_ring_still_closes_at_enqueue; fi
+if fm_test_selected test_failed_enqueue_does_not_close; then test_failed_enqueue_does_not_close; fi
+if fm_test_selected test_multiple_keys_close_together; then test_multiple_keys_close_together; fi
+if fm_test_selected test_multiple_keys_close_after_fold_is_self_announced; then test_multiple_keys_close_after_fold_is_self_announced; fi
+if fm_test_selected test_local_secondmate_answer_marked_and_closed; then test_local_secondmate_answer_marked_and_closed; fi
+if fm_test_selected test_remote_secondmate_answer_closes_locally; then test_remote_secondmate_answer_closes_locally; fi
+if fm_test_selected test_remote_reply_corr_tag_does_not_block_resolve_key; then test_remote_reply_corr_tag_does_not_block_resolve_key; fi
+if fm_test_selected test_remote_transport_failure_does_not_close; then test_remote_transport_failure_does_not_close; fi
+if fm_test_selected test_flag_misuse_refuses; then test_flag_misuse_refuses; fi
+if fm_test_selected test_reserved_pending_reply_key_closes_through_resolve_key; then test_reserved_pending_reply_key_closes_through_resolve_key; fi
+if fm_test_selected test_unrelated_writer_cannot_close_or_hijack_reserved_key; then test_unrelated_writer_cannot_close_or_hijack_reserved_key; fi
+if fm_test_selected test_unclosable_reserved_key_refuses_before_send; then test_unclosable_reserved_key_refuses_before_send; fi
+if fm_test_selected test_long_decision_key_refuses_before_send; then test_long_decision_key_refuses_before_send; fi
+if fm_test_selected test_stamped_close_line_stays_within_the_status_line_cap; then test_stamped_close_line_stays_within_the_status_line_cap; fi
+if fm_test_selected test_failed_close_recovery_command_is_shell_safe; then test_failed_close_recovery_command_is_shell_safe; fi
+if fm_test_selected test_remote_reserved_pending_reply_key_closes_locally; then test_remote_reserved_pending_reply_key_closes_locally; fi
+if fm_test_selected test_decision_answer_partition_relocates_under_the_record; then test_decision_answer_partition_relocates_under_the_record; fi

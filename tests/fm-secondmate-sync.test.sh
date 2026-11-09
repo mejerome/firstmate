@@ -669,6 +669,12 @@ test_nudge_retry_uses_fresh_herdr_endpoint_after_respawn() {
   {
     printf 'window=%s\n' "$stale"
     printf 'backend=herdr\n'
+    # A herdr mate's record carries its whole identity, and liveness treats a
+    # record that names only a window as endpoint drift instead of probing it.
+    printf 'herdr_session=default\n'
+    printf 'herdr_workspace_id=w9\n'
+    printf 'herdr_tab_id=pY\n'
+    printf 'herdr_pane_id=%s\n' "${stale#*:}"
     printf 'kind=secondmate\n'
     printf 'harness=claude\n'
     printf 'home=%s/sm-instr\n' "$w"
@@ -681,8 +687,8 @@ set -u
 id=\${1:-}
 meta="\$FM_HOME/state/\$id.meta"
 [ -f "\$meta" ] || exit 1
-sed -i.bak "s/^window=.*/window=$fresh/" "\$meta" 2>/dev/null || \
-  sed -i "s/^window=.*/window=$fresh/" "\$meta"
+sed -i.bak "s/^window=.*/window=$fresh/; s/^herdr_pane_id=.*/herdr_pane_id=${fresh#*:}/" "\$meta" 2>/dev/null || \
+  sed -i "s/^window=.*/window=$fresh/; s/^herdr_pane_id=.*/herdr_pane_id=${fresh#*:}/" "\$meta"
 rm -f "\$meta.bak"
 exit 0
 SH

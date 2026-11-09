@@ -41,7 +41,7 @@ run_trust() {
 }
 
 trusted_paths() {  # <store>
-  node -e 'const j=require("node:fs").existsSync(process.argv[1])?JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")):{};for(const [k,v] of Object.entries(j.projects||{})){if(v&&v.hasTrustDialogAccepted===true)console.log(k);}' "$1"
+  timeout 300 node -e 'const j=require("node:fs").existsSync(process.argv[1])?JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")):{};for(const [k,v] of Object.entries(j.projects||{})){if(v&&v.hasTrustDialogAccepted===true)console.log(k);}' "$1"
 }
 
 assert_trusted() {  # <store> <path> <msg>
@@ -58,7 +58,7 @@ assert_not_trusted() {  # <store> <path> <msg>
 store_value() {  # <store> <key...> -> the JSON value at that key path
   local store=$1
   shift
-  node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));let v=j;for(const k of process.argv.slice(2)){v=(v===undefined||v===null)?undefined:v[k];}console.log(JSON.stringify(v));' "$store" "$@"
+  timeout 300 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));let v=j;for(const k of process.argv.slice(2)){v=(v===undefined||v===null)?undefined:v[k];}console.log(JSON.stringify(v));' "$store" "$@"
 }
 
 assert_store_value() {  # <store> <expected-json> <msg> <key...>
@@ -75,7 +75,7 @@ assert_store_value() {  # <store> <expected-json> <msg> <key...>
 # entry, so this is what actually proves the dialog is suppressed.
 assert_all_flags() {
   local store=$1 key=$2 msg=$3
-  node -e '
+  timeout 300 node -e '
     const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));
     const e=(j.projects||{})[process.argv[2]]||{};
     const flags=["hasTrustDialogAccepted","hasClaudeMdExternalIncludesApproved","hasClaudeMdExternalIncludesWarningShown"];
@@ -90,7 +90,7 @@ assert_all_flags() {
 # a spawn never manufactures that consent from an absent flag.
 assert_trust_only_no_import_consent() {
   local store=$1 key=$2 msg=$3
-  node -e '
+  timeout 300 node -e '
     const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));
     const e=(j.projects||{})[process.argv[2]]||{};
     const trustOk = e.hasTrustDialogAccepted === true;

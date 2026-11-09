@@ -2623,7 +2623,13 @@ SH
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
-  *display-message*'#{pane_current_command}'*) printf '%s' zsh ;;
+  *list-windows*)
+    if [ -s '$log' ]; then
+      printf '%s\n' fm-sm
+    fi
+    ;;
+  *display-message*'#{pane_tty}'*) printf '%s' '/dev/pts/0' ;;
+  *display-message*'#{pane_current_command}'*) printf '%s' pi ;;
   *display-message*'#{pane_id}'*) printf '%s' '%1' ;;
   *display-message*'#{cursor_y}'*) printf '%s' 0 ;;
   *capture-pane*) printf '❯\n'
@@ -2632,6 +2638,11 @@ case "\$*" in
 esac
 SH
   chmod +x "$fakebin/tmux"
+  cat > "$fakebin/ps" <<SH
+#!/usr/bin/env bash
+printf '%s\n' '12345 12345 12345 pi'
+SH
+  chmod +x "$fakebin/ps"
   PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
     "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1

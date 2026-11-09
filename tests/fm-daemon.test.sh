@@ -2823,7 +2823,7 @@ test_wedge_alarm_shutdown_stops_active_notifier_group() {
     child=$(cat "$child_file")
     WEDGE_ALARM_NOTIFIER_PID=$pid
     wedge_alarm_stop_active_notifier
-    if kill -0 "$child" 2>/dev/null; then
+    if fm_test_process_running "$child"; then
       fail "shutdown left a notifier descendant running (pid $child)"
     fi
   ) || fail "notifier shutdown cleanup helper failed"
@@ -2849,6 +2849,12 @@ test_inject_wedge_alarm_fires_active_alert_on_non_tmux_backend() {
 
 test_inject_wedge_alarm_throttles_when_marker_cannot_be_written() {
   local dir state log daemon_log alerts errors
+  # A root job user bypasses the state directory's write mode; skip that
+  # capability gap instead of reporting a product failure.
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: root_job: state directory mode bits cannot deny a root job user\n'
+    return 0
+  fi
   dir=$(make_wedge_case wedge-unwritable-marker)
   state="$dir/state"; log="$dir/alert.log"; daemon_log="$dir/daemon.log"
   escalate_add "$state" "needs-decision: pick A"

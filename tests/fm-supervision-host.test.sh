@@ -397,13 +397,13 @@ test_dispatch_entry_scopes_rows_and_renders_the_away_tail() {
   append_wake "$state" signal demo.status "signal: $state/demo.status"
   append_wake "$state" check merge "check: merge landed: fixture"
 
-  out=$(FM_HOME="$home" node "$DISPATCH" scope)
+  out=$(FM_HOME="$home" timeout 300 node "$DISPATCH" scope)
   assert_contains "$out" "status=safe" "an attended scan with a resolvable row must be safe"
   assert_contains "$out" "rows=1" "an attended scan must leave the check row to main"
   assert_contains "$out" "tasks=demo" "the signal row must resolve to its task"
   assert_contains "$out" "unscoped=0" "a task-local claim must be scoped"
 
-  out=$(FM_HOME="$home" node "$DISPATCH" scope --afk)
+  out=$(FM_HOME="$home" timeout 300 node "$DISPATCH" scope --afk)
   assert_contains "$out" "rows=1 2" "an away scan must claim the check row too"
   assert_contains "$out" "unscoped=1" "a claimed check row names no task, so the claim is unscoped"
 
@@ -1462,6 +1462,11 @@ home_arms() {  # <home>
 }
 parent_of() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
 
+# A process that exited is not a survivor, even where this init leaves it a
+# zombie; the exit-side checks add the strict kill -0 form wherever init reaps.
+not_running() { ! fm_test_process_running "$1"; }
+not_running_both() { not_running "$1" && not_running "$2"; }
+
 # True once the park's own arm owns the home's only watcher cycle: exactly one
 # arm runs from the home, it is the host's child, and it is the watcher's parent.
 host_owns_the_only_cycle() {  # <home>
@@ -1507,9 +1512,9 @@ leave_a_cycle_for_main_and_restart() {  # <home>
   # The session restarts: the old one ends, and a new one holds the lock.
   first_session=$(tail -n 1 "$home/claude-pids")
   : > "$home/session.stop"
-  wait_until 100 sh -c '! kill -0 "$1" 2>/dev/null' _ "$first_session" || fail "fixture: the first session did not end"
+  wait_until 100 not_running "$first_session" || fail "fixture: the first session did not end"
   rm -f "$home/session.stop"
-  kill -0 "$LEFT_ARM" 2>/dev/null || fail "fixture: the successor arm did not outlive its session"
+  fm_test_process_running "$LEFT_ARM" || fail "fixture: the successor arm did not outlive its session"
   start_hook_session "$home"
 }
 
@@ -1522,8 +1527,12 @@ test_next_park_takes_over_the_cycle_a_pass_through_left_for_main() {
   turn_end "$home"
   wait_until 150 host_owns_the_only_cycle "$home" \
     || fail "takeover: the next park did not own the home's only watcher cycle (left arm $left_arm, watcher $left_watcher):"$'\n'"$(home_arms "$home")"$'\n'"$(cat "$home/state/.supervision-host.log")"
-  ! kill -0 "$left_arm" 2>/dev/null || fail "takeover: the successor arm a pass-through left still runs (pid $left_arm)"
-  ! kill -0 "$left_watcher" 2>/dev/null || fail "takeover: the successor watcher still runs (pid $left_watcher)"
+  fm_test_process_running "$left_arm" && fail "takeover: the successor arm a pass-through left still runs (pid $left_arm)"
+  fm_test_process_running "$left_watcher" && fail "takeover: the successor watcher still runs (pid $left_watcher)"
+  if fm_test_init_reaps_orphans "$home"; then
+    kill -0 "$left_arm" 2>/dev/null && fail "takeover: the successor arm exited but this init still answers for its pid"
+    kill -0 "$left_watcher" 2>/dev/null && fail "takeover: the successor watcher exited but this init still answers for its pid"
+  fi
   sleep 2
   ! hook_exited "$home" || fail "takeover: the takeover woke main: $(cat "$home/hook.err")"
   host_owns_the_only_cycle "$home" || fail "takeover: the park did not keep the cycle it took over"
@@ -1566,7 +1575,7 @@ test_a_park_stopped_mid_take_over_leaves_the_take_over_to_the_next_park() {
   # The Stop hook runs the next park in place of the one stopped by a signal.
   wait_until 150 host_owns_the_only_cycle "$home" \
     || fail "interrupted takeover: the next park did not own the home's only watcher cycle (left arm $LEFT_ARM):"$'\n'"$(home_arms "$home")"$'\n'"$(cat "$home/state/.supervision-host.log")"
-  ! kill -0 "$LEFT_ARM" 2>/dev/null || fail "interrupted takeover: the left arm still runs (pid $LEFT_ARM)"
+  ! fm_test_process_running "$LEFT_ARM" || fail "interrupted takeover: the left arm still runs (pid $LEFT_ARM)"
   pass "host+hook: a park stopped mid take-over leaves the take-over to the next park"
 }
 
@@ -1884,6 +1893,13 @@ test_attended_wake_with_an_unreadable_mirror_reaches_main() {
 
   park_again "$home"
   [ -f "$mirror" ] || fail "fixture: the next park did not write the mirror again"
+  # An unreadable mirror needs a job user that mode bits deny; a root job user
+  # reads it, so this fixture reports the precondition instead of a failure. The
+  # missing-mirror case above already ran for real.
+  if ! fm_test_permission_enforced; then
+    printf 'skip: root_job: attended-wake-with-an-unreadable-mirror needs a job user that mode bits deny\n'
+    return 0
+  fi
   chmod 000 "$mirror"
   append_status "$home" 'unreadable mirror'
   wait_until 250 host_exited "$home" || fail "bad mirror: an unreadable mirror did not hand the wake to main"
@@ -2280,7 +2296,7 @@ test_engine_turn_is_bounded_and_its_descendants_reaped() {
   wait_until 300 host_exited "$home" || fail "hang: the bounded turn did not end"
   assert_re '^supervision-host: .*the engine turn hit its 3s bound; this wake is yours$' "$home/host.out" "a bounded turn must hand its wake to main"
   orphan=$(cat "$home/orphan-pid")
-  wait_until 50 sh -c '! kill -0 "$1" 2>/dev/null' _ "$orphan" \
+  wait_until 50 not_running "$orphan" \
     || fail "an engine tool process in its own process group outlived the turn: $(ps -p "$orphan" -o pid=,pgid=,command=)"
   pass "host: an engine turn is bounded, and tool processes outside its process group are reaped"
 }
@@ -2295,9 +2311,9 @@ test_restarted_host_stops_what_a_killed_predecessor_left() {
   watcher=$(cat "$home/state/.watch.lock/pid")
   kill -KILL "$first_host"
   sleep 1
-  kill -0 "$arm" 2>/dev/null || fail "crash: fixture error: the arm died with its host, so this case proves nothing"
+  fm_test_process_running "$arm" || fail "crash: fixture error: the arm died with its host, so this case proves nothing"
   start_host "$home"
-  wait_until 200 sh -c '! kill -0 "$1" 2>/dev/null && ! kill -0 "$2" 2>/dev/null' _ "$arm" "$watcher" \
+  wait_until 200 not_running_both "$arm" "$watcher" \
     || fail "a restarted host left its killed predecessor's arm or watcher running"
   wait_until 100 sh -c 'grep -q "	start	gen=host-" "$1" && [ "$(grep -c "	start	" "$1")" -ge 2 ]' _ "$home/state/.supervision-host.log" \
     || fail "the restarted host did not start"
@@ -2888,76 +2904,77 @@ test_superseded_host_leaves_the_owner_untouched() {
   pass "host: a host under a superseded auto-arm generation stands down without touching the owner"
 }
 
-test_claude_stop_hook_restores_handoff_when_successor_closed_before_exit_to_main
-test_claude_stop_hook_restores_handoff_when_successor_closed_mid_engine_turn
-test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails
-test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails
-test_park_exit_probe_uses_half_second_child_sleeps
-test_report_surface_enforces_actor_turn_and_scope
-test_report_after_the_return_is_queued_for_main
-test_dispatch_entry_scopes_rows_and_renders_the_away_tail
-test_branch_outcomes_only_on_a_host_home_off_pi
-test_branch_outcomes_put_captain_first_and_collapse_routine_overflow
-test_branch_outcomes_collapse_repeated_captain_outcomes_per_task
-test_branch_outcomes_present_a_long_away_window_once
-test_branch_outcomes_budgets_count_bytes
-test_branch_outcomes_stay_unread_when_a_projection_fails
-test_branch_outcomes_stay_unread_without_jq
-test_branch_outcomes_stay_unread_when_the_drain_cannot_print
-test_branch_outcomes_date_a_legacy_backlog_without_adopting_it
-test_branch_ack_keeps_older_keyed_decision_open
-test_branch_outcomes_date_an_outcome_carried_across_a_switch_off_pi
-test_branch_outcomes_keep_an_unshown_outcome_until_acknowledged
-test_branch_outcomes_keep_a_drain_presented_outcome_across_a_switch_to_pi
-test_branch_outcomes_keep_a_drain_presented_outcome_across_an_index_repair
-test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main
-test_attended_captain_outcome_reaches_main_through_branch_outcomes
-test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return
-test_quiet_record_without_its_daemon_is_a_present_captain
-test_attended_main_only_close_passes_straight_to_main
-test_off_written_while_parked_passes_the_next_attended_close_to_main
-test_main_only_pass_through_leaves_the_successor_watcher_running
-test_attended_close_with_unidentified_main_session_passes_to_main
-test_close_accepted_away_that_turns_attended_passes_to_main
-test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
-test_claude_stop_hook_delivers_a_main_only_pass_through
-test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
-test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
-test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn
-test_claude_stop_hook_notifies_when_at_turn_downtime_write_fails
-test_successor_close_during_main_turn_is_delivered_at_the_next_turn_end
-test_next_park_takes_over_the_cycle_a_pass_through_left_for_main
-test_a_park_stopped_mid_take_over_leaves_the_take_over_to_the_next_park
-test_unrecorded_successor_is_stopped_rather_than_left_for_main
-test_primary_without_a_verified_mirror_runs_away_only
-test_attended_wake_carries_the_dialog_mirror
-test_dialog_bearing_files_are_owner_only
-test_undelivered_dialog_is_fed_again_on_the_next_turn
-test_attended_wake_with_an_unreadable_mirror_reaches_main
-test_away_wake_is_handled_on_the_engine_and_never_reaches_main
-test_away_turn_without_a_report_hands_the_wake_to_main
-test_return_during_an_engine_turn_hands_its_outcomes_to_main
-test_silent_outcomes_are_not_relayed_when_the_captain_returns
-test_large_turn_relays_an_early_visible_outcome
-test_outcome_lookup_failure_is_not_treated_as_silence
-test_outcome_after_the_return_survives_a_host_killed_at_the_turn_end
-test_next_host_clears_a_turn_its_killed_predecessor_left
-test_report_without_acknowledgement_hands_the_wake_to_main
-test_return_during_a_failed_turn_still_hands_its_outcomes_to_main
-test_incomplete_engine_result_hands_the_wake_to_main
-test_latch_trips_after_two_engine_errors_then_probes_and_recovers
-test_latch_keeps_attended_closes_on_main_and_skips_unopted_homes
-test_attended_latch_keeps_closes_on_main_and_records_recovery_off_main
-test_engine_turn_is_bounded_and_its_descendants_reaped
-test_restarted_host_stops_what_a_killed_predecessor_left
-test_park_boundary_ends_the_park_before_the_hook_timeout
-test_park_boundary_holds_under_back_to_back_closes
-test_park_boundary_rechecked_just_before_the_engine_turn
-test_park_test_clock_requires_the_marker
-test_park_seconds_at_or_beyond_the_hook_registration_fall_back_to_the_default
-test_park_limit_lets_a_turn_outlive_the_boundary
-test_first_cycle_status_streams_and_owner_options_reach_it
-test_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event
-test_unverified_engine_hands_every_away_wake_to_main
-test_host_outside_the_lock_owner_stands_down
-test_superseded_host_leaves_the_owner_untouched
+fm_test_reexec_unprivileged test_attended_wake_with_an_unreadable_mirror_reaches_main
+if fm_test_selected test_claude_stop_hook_restores_handoff_when_successor_closed_before_exit_to_main; then test_claude_stop_hook_restores_handoff_when_successor_closed_before_exit_to_main; fi
+if fm_test_selected test_claude_stop_hook_restores_handoff_when_successor_closed_mid_engine_turn; then test_claude_stop_hook_restores_handoff_when_successor_closed_mid_engine_turn; fi
+if fm_test_selected test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails; then test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails; fi
+if fm_test_selected test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails; then test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails; fi
+if fm_test_selected test_park_exit_probe_uses_half_second_child_sleeps; then test_park_exit_probe_uses_half_second_child_sleeps; fi
+if fm_test_selected test_report_surface_enforces_actor_turn_and_scope; then test_report_surface_enforces_actor_turn_and_scope; fi
+if fm_test_selected test_report_after_the_return_is_queued_for_main; then test_report_after_the_return_is_queued_for_main; fi
+if fm_test_selected test_dispatch_entry_scopes_rows_and_renders_the_away_tail; then test_dispatch_entry_scopes_rows_and_renders_the_away_tail; fi
+if fm_test_selected test_branch_outcomes_only_on_a_host_home_off_pi; then test_branch_outcomes_only_on_a_host_home_off_pi; fi
+if fm_test_selected test_branch_outcomes_put_captain_first_and_collapse_routine_overflow; then test_branch_outcomes_put_captain_first_and_collapse_routine_overflow; fi
+if fm_test_selected test_branch_outcomes_collapse_repeated_captain_outcomes_per_task; then test_branch_outcomes_collapse_repeated_captain_outcomes_per_task; fi
+if fm_test_selected test_branch_outcomes_present_a_long_away_window_once; then test_branch_outcomes_present_a_long_away_window_once; fi
+if fm_test_selected test_branch_outcomes_budgets_count_bytes; then test_branch_outcomes_budgets_count_bytes; fi
+if fm_test_selected test_branch_outcomes_stay_unread_when_a_projection_fails; then test_branch_outcomes_stay_unread_when_a_projection_fails; fi
+if fm_test_selected test_branch_outcomes_stay_unread_without_jq; then test_branch_outcomes_stay_unread_without_jq; fi
+if fm_test_selected test_branch_outcomes_stay_unread_when_the_drain_cannot_print; then test_branch_outcomes_stay_unread_when_the_drain_cannot_print; fi
+if fm_test_selected test_branch_outcomes_date_a_legacy_backlog_without_adopting_it; then test_branch_outcomes_date_a_legacy_backlog_without_adopting_it; fi
+if fm_test_selected test_branch_ack_keeps_older_keyed_decision_open; then test_branch_ack_keeps_older_keyed_decision_open; fi
+if fm_test_selected test_branch_outcomes_date_an_outcome_carried_across_a_switch_off_pi; then test_branch_outcomes_date_an_outcome_carried_across_a_switch_off_pi; fi
+if fm_test_selected test_branch_outcomes_keep_an_unshown_outcome_until_acknowledged; then test_branch_outcomes_keep_an_unshown_outcome_until_acknowledged; fi
+if fm_test_selected test_branch_outcomes_keep_a_drain_presented_outcome_across_a_switch_to_pi; then test_branch_outcomes_keep_a_drain_presented_outcome_across_a_switch_to_pi; fi
+if fm_test_selected test_branch_outcomes_keep_a_drain_presented_outcome_across_an_index_repair; then test_branch_outcomes_keep_a_drain_presented_outcome_across_an_index_repair; fi
+if fm_test_selected test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main; then test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main; fi
+if fm_test_selected test_attended_captain_outcome_reaches_main_through_branch_outcomes; then test_attended_captain_outcome_reaches_main_through_branch_outcomes; fi
+if fm_test_selected test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return; then test_captain_leaving_mid_turn_keeps_its_captain_outcome_for_the_return; fi
+if fm_test_selected test_quiet_record_without_its_daemon_is_a_present_captain; then test_quiet_record_without_its_daemon_is_a_present_captain; fi
+if fm_test_selected test_attended_main_only_close_passes_straight_to_main; then test_attended_main_only_close_passes_straight_to_main; fi
+if fm_test_selected test_off_written_while_parked_passes_the_next_attended_close_to_main; then test_off_written_while_parked_passes_the_next_attended_close_to_main; fi
+if fm_test_selected test_main_only_pass_through_leaves_the_successor_watcher_running; then test_main_only_pass_through_leaves_the_successor_watcher_running; fi
+if fm_test_selected test_attended_close_with_unidentified_main_session_passes_to_main; then test_attended_close_with_unidentified_main_session_passes_to_main; fi
+if fm_test_selected test_close_accepted_away_that_turns_attended_passes_to_main; then test_close_accepted_away_that_turns_attended_passes_to_main; fi
+if fm_test_selected test_attended_close_that_turns_main_only_before_its_turn_passes_to_main; then test_attended_close_that_turns_main_only_before_its_turn_passes_to_main; fi
+if fm_test_selected test_claude_stop_hook_delivers_a_main_only_pass_through; then test_claude_stop_hook_delivers_a_main_only_pass_through; fi
+if fm_test_selected test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record; then test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record; fi
+if fm_test_selected test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out; then test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out; fi
+if fm_test_selected test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn; then test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn; fi
+if fm_test_selected test_claude_stop_hook_notifies_when_at_turn_downtime_write_fails; then test_claude_stop_hook_notifies_when_at_turn_downtime_write_fails; fi
+if fm_test_selected test_successor_close_during_main_turn_is_delivered_at_the_next_turn_end; then test_successor_close_during_main_turn_is_delivered_at_the_next_turn_end; fi
+if fm_test_selected test_next_park_takes_over_the_cycle_a_pass_through_left_for_main; then test_next_park_takes_over_the_cycle_a_pass_through_left_for_main; fi
+if fm_test_selected test_a_park_stopped_mid_take_over_leaves_the_take_over_to_the_next_park; then test_a_park_stopped_mid_take_over_leaves_the_take_over_to_the_next_park; fi
+if fm_test_selected test_unrecorded_successor_is_stopped_rather_than_left_for_main; then test_unrecorded_successor_is_stopped_rather_than_left_for_main; fi
+if fm_test_selected test_primary_without_a_verified_mirror_runs_away_only; then test_primary_without_a_verified_mirror_runs_away_only; fi
+if fm_test_selected test_attended_wake_carries_the_dialog_mirror; then test_attended_wake_carries_the_dialog_mirror; fi
+if fm_test_selected test_dialog_bearing_files_are_owner_only; then test_dialog_bearing_files_are_owner_only; fi
+if fm_test_selected test_undelivered_dialog_is_fed_again_on_the_next_turn; then test_undelivered_dialog_is_fed_again_on_the_next_turn; fi
+if fm_test_selected test_attended_wake_with_an_unreadable_mirror_reaches_main; then test_attended_wake_with_an_unreadable_mirror_reaches_main; fi
+if fm_test_selected test_away_wake_is_handled_on_the_engine_and_never_reaches_main; then test_away_wake_is_handled_on_the_engine_and_never_reaches_main; fi
+if fm_test_selected test_away_turn_without_a_report_hands_the_wake_to_main; then test_away_turn_without_a_report_hands_the_wake_to_main; fi
+if fm_test_selected test_return_during_an_engine_turn_hands_its_outcomes_to_main; then test_return_during_an_engine_turn_hands_its_outcomes_to_main; fi
+if fm_test_selected test_silent_outcomes_are_not_relayed_when_the_captain_returns; then test_silent_outcomes_are_not_relayed_when_the_captain_returns; fi
+if fm_test_selected test_large_turn_relays_an_early_visible_outcome; then test_large_turn_relays_an_early_visible_outcome; fi
+if fm_test_selected test_outcome_lookup_failure_is_not_treated_as_silence; then test_outcome_lookup_failure_is_not_treated_as_silence; fi
+if fm_test_selected test_outcome_after_the_return_survives_a_host_killed_at_the_turn_end; then test_outcome_after_the_return_survives_a_host_killed_at_the_turn_end; fi
+if fm_test_selected test_next_host_clears_a_turn_its_killed_predecessor_left; then test_next_host_clears_a_turn_its_killed_predecessor_left; fi
+if fm_test_selected test_report_without_acknowledgement_hands_the_wake_to_main; then test_report_without_acknowledgement_hands_the_wake_to_main; fi
+if fm_test_selected test_return_during_a_failed_turn_still_hands_its_outcomes_to_main; then test_return_during_a_failed_turn_still_hands_its_outcomes_to_main; fi
+if fm_test_selected test_incomplete_engine_result_hands_the_wake_to_main; then test_incomplete_engine_result_hands_the_wake_to_main; fi
+if fm_test_selected test_latch_trips_after_two_engine_errors_then_probes_and_recovers; then test_latch_trips_after_two_engine_errors_then_probes_and_recovers; fi
+if fm_test_selected test_latch_keeps_attended_closes_on_main_and_skips_unopted_homes; then test_latch_keeps_attended_closes_on_main_and_skips_unopted_homes; fi
+if fm_test_selected test_attended_latch_keeps_closes_on_main_and_records_recovery_off_main; then test_attended_latch_keeps_closes_on_main_and_records_recovery_off_main; fi
+if fm_test_selected test_engine_turn_is_bounded_and_its_descendants_reaped; then test_engine_turn_is_bounded_and_its_descendants_reaped; fi
+if fm_test_selected test_restarted_host_stops_what_a_killed_predecessor_left; then test_restarted_host_stops_what_a_killed_predecessor_left; fi
+if fm_test_selected test_park_boundary_ends_the_park_before_the_hook_timeout; then test_park_boundary_ends_the_park_before_the_hook_timeout; fi
+if fm_test_selected test_park_boundary_holds_under_back_to_back_closes; then test_park_boundary_holds_under_back_to_back_closes; fi
+if fm_test_selected test_park_boundary_rechecked_just_before_the_engine_turn; then test_park_boundary_rechecked_just_before_the_engine_turn; fi
+if fm_test_selected test_park_test_clock_requires_the_marker; then test_park_test_clock_requires_the_marker; fi
+if fm_test_selected test_park_seconds_at_or_beyond_the_hook_registration_fall_back_to_the_default; then test_park_seconds_at_or_beyond_the_hook_registration_fall_back_to_the_default; fi
+if fm_test_selected test_park_limit_lets_a_turn_outlive_the_boundary; then test_park_limit_lets_a_turn_outlive_the_boundary; fi
+if fm_test_selected test_first_cycle_status_streams_and_owner_options_reach_it; then test_first_cycle_status_streams_and_owner_options_reach_it; fi
+if fm_test_selected test_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event; then test_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event; fi
+if fm_test_selected test_unverified_engine_hands_every_away_wake_to_main; then test_unverified_engine_hands_every_away_wake_to_main; fi
+if fm_test_selected test_host_outside_the_lock_owner_stands_down; then test_host_outside_the_lock_owner_stands_down; fi
+if fm_test_selected test_superseded_host_leaves_the_owner_untouched; then test_superseded_host_leaves_the_owner_untouched; fi

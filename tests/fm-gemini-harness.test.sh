@@ -140,7 +140,7 @@ for (const k of ['GEMINI_CLI', 'CLAUDECODE', 'CURSOR_AGENT', 'CURSOR_INVOKED_AS'
 const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: 'utf8' });
 process.stdout.write(r.stdout || '');
 JS
-    out=$(FM_HARNESS_BIN="$HARNESS" node "$dir/gemini" 2>/dev/null | tr -d '\n')
+    out=$(FM_HARNESS_BIN="$HARNESS" timeout 300 node "$dir/gemini" 2>/dev/null | tr -d '\n')
     [ "$out" = gemini ] \
       || fail "where node reports comm=$comm, a gemini script path must detect gemini, got '$out'"
     pass "fm-harness.sh: this platform's node reports comm=$comm and ancestry reaches gemini"
@@ -157,11 +157,11 @@ for (const k of ['GEMINI_CLI', 'CLAUDECODE', 'CURSOR_AGENT', 'CURSOR_INVOKED_AS'
 const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: 'utf8' });
 process.stdout.write(r.stdout || '');
 JS
-  out=$(FM_HARNESS_BIN="$HARNESS" node "$dir/gemini" 2>/dev/null | tr -d '\n')
+  out=$(FM_HARNESS_BIN="$HARNESS" timeout 300 node "$dir/gemini" 2>/dev/null | tr -d '\n')
   [ "$out" != gemini ] \
     || fail "node reports comm=$comm here, so ancestry must not be claiming gemini; got '$out'"
   # And the marker closes exactly that gap on the same process shape.
-  out=$(FM_HARNESS_BIN="$HARNESS" GEMINI_CLI=1 node -e '
+  out=$(FM_HARNESS_BIN="$HARNESS" GEMINI_CLI=1 timeout 300 node -e '
 const { spawnSync } = require("child_process");
 const r = spawnSync(process.env.FM_HARNESS_BIN, { encoding: "utf8" });
 process.stdout.write(r.stdout || "");' 2>/dev/null | tr -d '\n')

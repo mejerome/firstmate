@@ -55,7 +55,7 @@ classify() {  # <harness> <id> <state-dir>
 # Node host and fire one lifecycle handler. Modes: agent-start, settle-idle,
 # settle-continuing, turn-end.
 drive_pi_ext() {
-  EXT_PATH="$1" MODE="$2" node --input-type=module 2>&1 <<'EOF'
+  EXT_PATH="$1" MODE="$2" timeout 300 node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.env.EXT_PATH).href);
 const handlers = {};
@@ -161,7 +161,7 @@ test_pi_extension_stale_incarnation_rejected() {
 drive_oc_plugin() {
   local plugin=$1
   shift
-  PLUGIN_PATH="$plugin" node --input-type=module - "$@" 2>&1 <<'EOF'
+  PLUGIN_PATH="$plugin" timeout 300 node --input-type=module - "$@" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.env.PLUGIN_PATH).href);
 const hooks = await mod.FmBusyState({});

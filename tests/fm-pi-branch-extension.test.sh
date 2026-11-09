@@ -664,7 +664,7 @@ test_branch_dispatch_two_stage_filter_and_prefix_contract() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { pi, fire, dispatch, settle, outcomeScript, sentToMain, mainUserMessages, mainTools, renderers, entryRenderers, mainEntries, defaultSessionCtx, home, realRoot }; })()`);
 const { pi, fire, dispatch, settle, outcomeScript, sentToMain, mainUserMessages, mainTools, renderers, entryRenderers, mainEntries, defaultSessionCtx, home, realRoot } = globalThis.__t;
@@ -959,7 +959,7 @@ test_requested_healthy_outcome_and_unsolicited_routine_outcome_delivery() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, mainTools, home, realRoot }; })()`);
 const { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, mainTools, home, realRoot } = globalThis.__t;
@@ -1175,7 +1175,7 @@ test_captain_outcome_is_exactly_once_across_crash_reload_and_unrelated_response(
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx }; })()`);
 const { fire, sentToMain, mainEntries, entryRenderers, outcomeScript, defaultSessionCtx } = globalThis.__t;
@@ -1265,7 +1265,7 @@ test_captain_outcome_processing_turn_is_sequence_keyed_and_re_presented() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus, markdownTransformers }; })()`);
 const { fire, dispatch, settle, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx, home, bus, markdownTransformers } = globalThis.__t;
@@ -1618,7 +1618,7 @@ test_abbreviated_processing_request_points_to_full_outcome() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainEntries, outcomeScript, defaultSessionCtx }; })()`);
 const { fire, sentToMain, mainEntries, outcomeScript, defaultSessionCtx } = globalThis.__t;
@@ -1656,7 +1656,7 @@ test_large_unprocessed_backlog_replays_in_batches() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainTools, outcomeScript, defaultSessionCtx, home }; })()`);
 const { fire, sentToMain, mainTools, outcomeScript, defaultSessionCtx, home } = globalThis.__t;
@@ -1713,7 +1713,7 @@ exec "$ROOT/bin/fm-branch-outcome.sh" "\$@"
 SH
   chmod +x "$fake_root/bin/fm-branch-outcome.sh"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$fake_root" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, sentToMain, mainEntries, outcomeScript, defaultSessionCtx, home }; })()`);
 const { fire, sentToMain, mainEntries, outcomeScript, defaultSessionCtx, home } = globalThis.__t;
@@ -1757,7 +1757,7 @@ test_branch_cache_key_is_per_home_stable() {
   install_pi_branch_extension_fixture "$repo"
   probe() {
     PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$1" FM_ROOT_OVERRIDE="$ROOT" \
-      DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module 2>&1 <<'EOF'
+      DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, settle }; })()`);
 const { dispatch, settle } = globalThis.__t;
@@ -1798,7 +1798,7 @@ exit 1
 SH
   chmod +x "$broken/bin/fm-branch-prompt.sh"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, settle, home, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx }; })()`);
 const { dispatch, fire, settle, home, sentToMain, mainEntries, mainTools, outcomeScript, defaultSessionCtx } = globalThis.__t;
@@ -1957,7 +1957,7 @@ EOF
   expect_code 0 "$status" "default-on eligibility, heartbeat routing, and legacy-flag indifference must bind: $out"
 
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$TMP_ROOT/gating-home-2" FM_ROOT_OVERRIDE="$broken" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, settle, mainUserMessages }; })()`);
 const { dispatch, settle, mainUserMessages } = globalThis.__t;
@@ -2002,7 +2002,7 @@ test_away_record_parks_main_and_presents_after_archive() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, defaultSessionCtx, home, realRoot, bus, approvedProject }; })()`);
 const { fire, dispatch, settle, sentToMain, mainEntries, outcomeScript, defaultSessionCtx, home, realRoot, bus, approvedProject } = globalThis.__t;
@@ -2232,7 +2232,7 @@ test_away_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event() {
   printf '#!/usr/bin/env bash\nprintf "state: done · source: fake\\n"\n' > "$home/fakebin/fm-crew-state.sh"
   chmod +x "$home/fakebin/fm-crew-state.sh"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, bus, makeOffer, outcomeScript, defaultSessionCtx, home, realRoot, approvedProject }; })()`);
 const { fire, bus, makeOffer, outcomeScript, defaultSessionCtx, home, realRoot, approvedProject } = globalThis.__t;
@@ -2345,7 +2345,7 @@ test_away_only_wake_rejects_when_record_is_archived_before_drain() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, home, realRoot, bus, makeOffer, mainUserMessages, approvedProject }; })()`);
 const { fire, home, realRoot, bus, makeOffer, mainUserMessages, approvedProject } = globalThis.__t;
@@ -2410,7 +2410,7 @@ test_away_claimed_heartbeat_on_a_task_wake_lifts_task_scoping() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, settle, home, realRoot, bus, makeOffer, approvedProject, defaultSessionCtx }; })()`);
 const { fire, settle, home, realRoot, bus, makeOffer, approvedProject, defaultSessionCtx } = globalThis.__t;
@@ -2461,7 +2461,7 @@ test_branch_predrain_recheck_keeps_a_heartbeat_a_co_present_check_arrives_under(
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, mainUserMessages }; })()`);
 const { dispatch, fire, home, mainUserMessages } = globalThis.__t;
@@ -2514,7 +2514,7 @@ test_branch_report_refuses_a_task_the_wake_did_not_name() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, settle, approvedProject, defaultSessionCtx }; })()`);
 const { dispatch, fire, home, settle, approvedProject, defaultSessionCtx } = globalThis.__t;
@@ -2605,7 +2605,7 @@ test_branch_predrain_recheck_excludes_new_main_owned_row_without_deferring_eligi
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, mainUserMessages }; })()`);
 const { dispatch, fire, home, mainUserMessages } = globalThis.__t;
@@ -2666,7 +2666,7 @@ test_branch_predrain_needs_decision_keeps_routine_row_branch_eligible() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { bus, fire, home, makeOffer, realRoot }; })()`);
 const { bus, fire, home, makeOffer, realRoot } = globalThis.__t;
@@ -2726,7 +2726,7 @@ test_settled_branch_prompt_releases_unacknowledged_grant() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, realRoot, mainUserMessages }; })()`);
 const { dispatch, fire, home, realRoot, mainUserMessages } = globalThis.__t;
@@ -2777,7 +2777,7 @@ test_post_construction_provider_error_falls_back_latches_and_recovers_on_cooldow
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { pi, makeOffer, dispatch, fire, settle, home, mainUserMessages, sentToMain }; })()`);
 const { pi, makeOffer, dispatch, fire, settle, home, mainUserMessages, sentToMain } = globalThis.__t;
@@ -2965,7 +2965,7 @@ test_selection_change_does_not_corrupt_inflight_provider_state() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, settle, home, mainUserMessages }; })()`);
 const { dispatch, fire, settle, home, mainUserMessages } = globalThis.__t;
@@ -3046,7 +3046,7 @@ test_main_owned_grant_result_falls_back_to_main() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, mainUserMessages }; })()`);
 const { dispatch, fire, home, mainUserMessages } = globalThis.__t;
@@ -3084,7 +3084,7 @@ test_branch_predrain_recheck_noops_already_drained_wake() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, mainUserMessages }; })()`);
 const { dispatch, fire, home, mainUserMessages } = globalThis.__t;
@@ -3138,7 +3138,7 @@ test_branch_mirror_filters_order_and_cursor() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home }; })()`);
 const { fire, dispatch, settle, home } = globalThis.__t;
@@ -3229,7 +3229,7 @@ test_branch_mirror_reanchors_for_the_new_session_branch_conversation() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, home }; })()`);
 const { fire, dispatch, settle, makeCtx, home } = globalThis.__t;
@@ -3299,7 +3299,7 @@ test_branch_session_is_new_at_every_main_session_start() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, home }; })()`);
 const { fire, dispatch, settle, makeCtx, home } = globalThis.__t;
@@ -3359,7 +3359,7 @@ EOF
   # previous process is left on disk and never becomes the live one.
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_PRIOR_POINTER="$first_pointer" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, home }; })()`);
 const { fire, dispatch, settle, makeCtx, home } = globalThis.__t;
@@ -3396,7 +3396,7 @@ test_branch_model_pin_applies_and_absent_pin_keeps_the_default() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, home } = globalThis.__t;
@@ -3493,7 +3493,7 @@ test_unpinned_branch_follows_main_model_changes_live() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, home } = globalThis.__t;
@@ -3552,7 +3552,7 @@ test_supervision_model_command_persists_and_rebinds_the_live_branch() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, commands, registryModels, uiSelections, uiPrompts, notices, home }; })()`);
 const { fire, dispatch, settle, makeCtx, commands, registryModels, uiSelections, uiPrompts, notices, home } = globalThis.__t;
@@ -3748,7 +3748,7 @@ test_branch_effort_pin_applies_and_absent_pin_follows_main() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, setMainThinkingLevel, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, setMainThinkingLevel, home } = globalThis.__t;
@@ -3873,7 +3873,7 @@ test_unpinned_branch_follows_main_effort_changes_live() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, setMainThinkingLevel, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, setMainThinkingLevel, home } = globalThis.__t;
@@ -3937,7 +3937,7 @@ test_supervision_model_picker_is_bounded_searchable_and_branch_only() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, makeCtx, makeTuiCtx, commands, registryModels, uiSelections, uiKeystrokes, mainModelWrites, home }; })()`);
 const { fire, makeCtx, makeTuiCtx, commands, registryModels, uiSelections, uiKeystrokes, mainModelWrites, home } = globalThis.__t;
@@ -4016,7 +4016,7 @@ test_branch_model_picker_keeps_follow_main_first_under_ranking() {
   repo="$TMP_ROOT/pickerlib-root"
   mkdir -p "$repo/.pi/extensions/lib"
   cp "$ROOT/.pi/extensions/lib/fm-branch-model-picker.ts" "$repo/.pi/extensions/lib/fm-branch-model-picker.ts"
-  LIB="$repo/.pi/extensions/lib/fm-branch-model-picker.ts" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+  LIB="$repo/.pi/extensions/lib/fm-branch-model-picker.ts" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const { buildBranchModelItems, filterBranchPickerItems, BRANCH_PICKER_MAX_VISIBLE, FOLLOW_MAIN_VALUE } = await import(
@@ -4066,7 +4066,7 @@ test_supervision_model_command_picks_effort_after_the_model() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, commands, registryModels, uiSelections, uiPrompts, notices, setMainThinkingLevel, home }; })()`);
 const { fire, dispatch, settle, makeCtx, commands, registryModels, uiSelections, uiPrompts, notices, setMainThinkingLevel, home } = globalThis.__t;
@@ -4228,7 +4228,7 @@ test_unusable_model_pin_falls_back_to_main() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, mainUserMessages, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, mainUserMessages, home } = globalThis.__t;
@@ -4310,7 +4310,7 @@ SH
   PATH="$fakebin:$PATH" PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_REAL_BASH="$real_bash" FM_TEST_LEASE_SCRIPT="$ROOT/bin/fm-lease.sh" \
     FM_TEST_FAIL_MARKER="$home/state/release-failed-once" DRIVER_PRELUDE="$DRIVER_PRELUDE" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home, realRoot }; })()`);
 const { fire, dispatch, settle, home } = globalThis.__t;
@@ -4341,7 +4341,7 @@ test_cold_start_activates_after_lock_acquisition() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_TEST_SKIP_LOCK=1 DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    FM_TEST_SKIP_LOCK=1 DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home, mainEntries, outcomeScript, defaultSessionCtx }; })()`);
 const { fire, dispatch, settle, home, mainEntries, outcomeScript, defaultSessionCtx } = globalThis.__t;
@@ -4384,7 +4384,7 @@ test_queued_actions_recheck_lock_ownership() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home, mainUserMessages }; })()`);
 const { fire, dispatch, settle, home, mainUserMessages } = globalThis.__t;
@@ -4430,7 +4430,7 @@ test_stale_generation_boundaries_are_side_effect_free() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home, sentToMain }; })()`);
 const { fire, dispatch, settle, home, sentToMain } = globalThis.__t;
@@ -4512,7 +4512,7 @@ test_secondary_session_stays_inert() {
   foreign_pid=$!
   printf 'branch\t%s\t123\n' "$foreign_pid" > "$home/state/.lease-task-x"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_TEST_SKIP_LOCK=1 FM_TEST_LOCK_PID=$foreign_pid DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    FM_TEST_SKIP_LOCK=1 FM_TEST_LOCK_PID=$foreign_pid DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, home }; })()`);
 const { dispatch, home } = globalThis.__t;
@@ -4541,7 +4541,7 @@ test_rebind_remirrors_undelivered_dialog_from_durable_cursor() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, home }; })()`);
 const { fire, home } = globalThis.__t;
@@ -4637,7 +4637,7 @@ test_branch_dispatch_classifies_main_only_rows_and_writes_the_eligible_snapshot(
   cp "$ROOT/.pi/extensions/lib/fm-branch-model-picker.ts" "$repo/.pi/extensions/lib/fm-branch-model-picker.ts"
   printf 'project=%s/projects/approved\nwindow=fm-window\n' "$home" > "$home/state/task-a.meta"
   LIB="$repo/.pi/extensions/lib/fm-branch-dispatch.ts" FM_HOME="$home" GRANT="$ROOT/bin/fm-wake-grant.sh" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 import { syncBuiltinESMExports } from "node:module";
 import fs, { readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -4956,7 +4956,7 @@ test_branch_dispatch_routes_secondmate_signal_by_new_span() {
   printf 'project=%s/projects/approved\nwindow=mate-window\nkind=secondmate\n' "$home" > "$home/state/mate.meta"
   printf 'project=%s/projects/approved\nwindow=crew-window\nkind=ship\n' "$home" > "$home/state/crew.meta"
   LIB="$repo/.pi/extensions/lib/fm-branch-dispatch.ts" FM_HOME="$home" CLASSIFY_LIB="$ROOT/bin/fm-classify-lib.sh" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, rmSync, writeFileSync } from "node:fs";
@@ -5078,7 +5078,7 @@ test_real_pi_picker_primitives_stay_bounded_and_searchable() {
   original_dir=$PWD
   cd "$fixture" || fail "could not enter the Pi picker primitives fixture"
   LIB="$fixture/lib/fm-branch-model-picker.ts" PI_VERSION_FILE="$package_dir/package.json" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'JS'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 
@@ -5157,7 +5157,7 @@ test_outcomes_tool_call_headers_follow_the_loaded_pi_version() {
   install_pi_branch_extension_fixture "$repo"
   for version in 0.87.0 0.99.0; do
     FM_STUB_PI_VERSION="$version" EXT="$repo/.pi/extensions/fm-branch-supervision.ts" \
-      node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'JS'
+      timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 
 const version = process.env.FM_STUB_PI_VERSION;
@@ -5395,7 +5395,7 @@ test_delivery_keeps_the_event_loop_live_and_ordered() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx }; })()`);
 const { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx } = globalThis.__t;
@@ -5554,7 +5554,7 @@ SH
   PATH="$fakebin:$PATH" PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_REAL_PS="$real_ps" FM_TEST_PS_ARM="$home/state/ps-arm" \
     FM_TEST_PS_ENTERED="$home/state/ps-entered" FM_TEST_PS_RELEASE="$home/state/ps-release" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, home }; })()`);
 const { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, home } = globalThis.__t;
@@ -5672,7 +5672,7 @@ SH
   PATH="$fakebin:$PATH" PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_REAL_BASH="$real_bash" FM_TEST_OUTCOME_SCRIPT="$ROOT/bin/fm-branch-outcome.sh" \
     FM_TEST_FAIL_ARM="$home/state/store-fail-arm" DRIVER_PRELUDE="$DRIVER_PRELUDE" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx }; })()`);
 const { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx } = globalThis.__t;
@@ -5767,7 +5767,7 @@ SH
   PATH="$fakebin:$PATH" PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_REAL_BASH="$real_bash" FM_TEST_OUTCOME_SCRIPT="$ROOT/bin/fm-branch-outcome.sh" \
     FM_TEST_FAIL_ARM="$home/state/store-fail-arm" DRIVER_PRELUDE="$DRIVER_PRELUDE" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx }; })()`);
 const { fire, dispatch, settle, outcomeScript, sentToMain, mainEntries, defaultSessionCtx } = globalThis.__t;
@@ -5864,7 +5864,7 @@ test_extension_registered_provider_resolves_in_the_branch() {
   mkdir -p "$home/state" "$home/config"
   install_pi_branch_extension_fixture "$repo"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" timeout 300 node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
 await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, makeCtx, registryModels, uiSelections, uiPrompts, notices, commands, home }; })()`);
 const { fire, dispatch, settle, makeCtx, registryModels, uiSelections, uiPrompts, notices, commands, home } = globalThis.__t;

@@ -64,6 +64,31 @@ if pi --help 2>&1 | grep -q -- '--tui-mode'; then
   PI_TUI_MODE_ARGS='--tui-mode regular'
 fi
 
+# One-based character column of <needle> in the first line of <file>.
+# awk's index() counts bytes under mawk, so multi-byte water glyphs make a byte
+# offset differ from the terminal column the sprite geometry asserts. python3
+# counts characters, which is the unit the sprite's cellCount() uses.
+boat_column() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    needle = sys.argv[2]
+    for line in fh:
+        idx = line.find(needle)
+        if idx >= 0:
+            print(idx + 1)
+            break
+PY
+}
+# Character width of one rendered row, not a byte count. Bash's ${#s}
+# counts bytes under a C locale and characters only under a UTF-8 locale, so
+# use one UTF-8-aware count for the width assertions.
+boat_width() {
+  python3 - "$1" <<'PY'
+import sys
+print(len(sys.argv[1]))
+PY
+}
 find_chrome() {
   local candidate
   if [ -n "${FM_CHROME_BIN:-}" ] && [ -x "$FM_CHROME_BIN" ]; then
@@ -216,7 +241,7 @@ test_home_resolution() {
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     OVERRIDE_HOME="$fixture/override" \
     EXTENSION_HOME="$fixture/project" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -340,7 +365,7 @@ test_pi_compat_degraded_adapter() {
   out=$(cd "$fixture/project" && \
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -511,7 +536,7 @@ SH
     FM_OPERATIONAL_INPUT_OWNER="$OPERATIONAL_INPUT" \
     FM_CLASSIFIER_DOWN="$fixture/classifier-down" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module 2>&1 <<'JS'
+    timeout 300 node --input-type=module 2>&1 <<'JS'
 import { rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -825,7 +850,7 @@ test_builtin_gate_load_time() {
     EXT="$fixture/project/.pi/extensions/fm-calm.ts" \
     HOME_OFF="$fixture/home-off" \
     HOME_ON="$fixture/home-on" \
-    node --input-type=module) >"$output_file" 2>&1 <<'JS'
+    timeout 300 node --input-type=module) >"$output_file" 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 
 function fakePi() {
@@ -915,7 +940,7 @@ test_calm_activation_collision_and_regression_bound() {
     FOREIGN_EXT="$fixture/project/foreign-bash-extension.ts" \
     FM_HOME="$fixture/home" \
     PI_PACKAGE_DIR="$PI_PACKAGE_DIR" \
-    node --input-type=module) >"$output_file" 2>&1 <<'JS'
+    timeout 300 node --input-type=module) >"$output_file" 2>&1 <<'JS'
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
@@ -2373,7 +2398,7 @@ TS
       fi
     fi
 
-    node - "$session_file" "$label" "$expected_notifications" <<'JS' \
+    timeout 300 node - "$session_file" "$label" "$expected_notifications" <<'JS' \
       || fail "Pi follow-up $label persisted the wrong turn or input semantics"
 const fs = require("node:fs");
 const [file, label, expectedRaw] = process.argv.slice(2);
@@ -2461,7 +2486,7 @@ JS
     geometry_gap=$((handled_line - captain_line))
     [ "$geometry_gap" -eq 2 ] \
       || fail "Pi restart replay consumed $geometry_gap rows between neighboring assistant text"
-    node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
+    timeout 300 node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const text = (content) => typeof content === "string"
@@ -2680,7 +2705,7 @@ TS
       session_file=$(find "$sessions/$label" -type f -name '*.jsonl' | head -1)
     fi
 
-    node - "$session_file" "$label" "$calm_state" <<'JS' || fail "Pi queued-row $label case persisted the wrong delivery"
+    timeout 300 node - "$session_file" "$label" "$calm_state" <<'JS' || fail "Pi queued-row $label case persisted the wrong delivery"
 const fs = require("node:fs");
 const [file, label, calm] = process.argv.slice(2);
 const entries = fs.readFileSync(file, "utf8").trim().split("\n").map(JSON.parse);
@@ -4322,7 +4347,7 @@ JSON
       || fail "current operational kind $kind did not retain user-role delivery while Calm was active"
     sleep 0.1
   done
-  node - "$session_file" <<'JS' || fail "native Pi did not preserve every exact current operational kind"
+  timeout 300 node - "$session_file" <<'JS' || fail "native Pi did not preserve every exact current operational kind"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const nativeSessionStart = entries.find((entry) =>
@@ -4394,7 +4419,7 @@ JS
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
   wait_for_text "$export_snapshot" "Session exported to: $export_file" \
     || fail "/export did not complete while calm mode was on"
-  node - "$export_file" <<'JS' || fail "calm-mode HTML export lost tool data or persisted synthetic provenance"
+  timeout 300 node - "$export_file" <<'JS' || fail "calm-mode HTML export lost tool data or persisted synthetic provenance"
 const html = require("node:fs").readFileSync(process.argv[2], "utf8");
 const match = html.match(/<script id="session-data" type="application\/json">([^<]+)<\/script>/);
 if (!match) process.exit(1);
@@ -4418,7 +4443,7 @@ JS
   # asks to show hidden messages. Pi 0.87 omitted those rows from the column
   # entirely. The boundary is the visible conversation: a synthetic row may
   # sit in a hidden hook message, and nowhere a reader sees by default.
-  node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
+  timeout 300 node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
 const dom = require("node:fs").readFileSync(process.argv[2], "utf8");
 const messages = dom.match(/<div id="messages">([\s\S]*?)<\/main>/)?.[1];
 const tree = dom.match(/<div[^>]*id="tree-container"[^>]*>([\s\S]*?)<div[^>]*id="tree-status"/)?.[1];
@@ -4568,23 +4593,35 @@ JS
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" -l "/calm-boat-e2e"
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" M-s
   active_screen_wait=0
+  boat_frame_ready=0
   while [ "$active_screen_wait" -lt 200 ]; do
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$working_snapshot"
-    if grep -Fq '╲▁▁▁╱' "$working_snapshot"; then
-      break
+    tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
+    if grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' >/dev/null \
+       && grep -F '◿│◣' "$boat_color_snapshot" | grep -F '[33m' >/dev/null; then
+      perl -CSD -pe 's/\x1b\[[0-9;]*m//g' "$boat_color_snapshot" >"$boat_frame_one"
+      boat_hull_column=$(boat_column "$boat_frame_one" '╲▁▁▁╱')
+      boat_sail_column=$(boat_column "$boat_frame_one" '◿│◣')
+      if [ "$boat_sail_column" -eq $((boat_hull_column + 1)) ]; then
+        boat_frame_ready=1
+        break
+      fi
     fi
     sleep 0.025
     active_screen_wait=$((active_screen_wait + 1))
   done
-  cp "$working_snapshot" "$boat_frame_one"
+  [ "$boat_frame_ready" = 1 ] \
+    || fail "could not capture a colored working-ship frame with the sail centered over its hull"
+  # Derive the plain frame from the colored capture, so both assertions describe
+  # the same active moment; a second capture can land after the run ends.
+  perl -CSD -pe 's/\x1b\[[0-9;]*m//g' "$boat_color_snapshot" >"$boat_frame_one"
   assert_contains "$(cat "$boat_frame_one")" '╲▁▁▁╱' "Calm did not show the working ship during a real provider wait"
   assert_contains "$(cat "$boat_frame_one")" '◿│◣' "the working ship lost its centered asymmetric sail"
   assert_not_contains "$(cat "$boat_frame_one")" "Working" "Calm left Pi's stock working row visible while the ship was shown"
   assert_not_contains "$(cat "$boat_frame_one")" "calm transcript" "the real provider wait showed a persistent Calm status row"
   assert_not_contains "$(cat "$boat_frame_one")" "FIRSTMATE WATCHER WAKE: signal: /tmp/probe.status" "the real provider wait restored a hidden operational row"
   boat_hull_line=$(grep -F '╲▁▁▁╱' "$boat_frame_one" | head -1)
-  boat_hull_column=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_frame_one")
-  boat_sail_column=$(awk 'index($0,"◿│◣"){print index($0,"◿│◣"); exit}' "$boat_frame_one")
+  boat_hull_column=$(boat_column "$boat_frame_one" '╲▁▁▁╱')
+  boat_sail_column=$(boat_column "$boat_frame_one" '◿│◣')
   [ "$boat_sail_column" -eq $((boat_hull_column + 1)) ] \
     || fail "the working ship sail was not centered over its five-cell hull"
   assert_not_contains "$boat_hull_line" "Working" "the ship row carried extra status copy"
@@ -4592,9 +4629,12 @@ JS
     || fail "the working ship rendered no low waveform"
   # Standard ANSI colors: all water blue at every height, the whole hull and sail
   # yellow, no cyan crests or red sail half, and no RGB/256 escapes.
-  tmux -L "$TMUX_SOCKET" capture-pane -p -e -t "$TMUX_SESSION" >"$boat_color_snapshot"
-  boat_color_line=$(grep -F '╲' "$boat_color_snapshot" | head -1)
-  boat_sail_line=$(grep -F '◿' "$boat_color_snapshot" | head -1)
+  # Capture the hull and sail rows by the same exact glyph runs the geometry
+  # assertions use. A bare glyph also matches the water rows that carry ╲ beside
+  # the trough, so on some renders the first match was a water row: the blue
+  # check passed against it and the yellow one then failed on the wrong line.
+  boat_color_line=$(grep -F '╲▁▁▁╱' "$boat_color_snapshot" | grep -F '[33m' | head -1)
+  boat_sail_line=$(grep -F '◿│◣' "$boat_color_snapshot" | grep -F '[33m' | head -1)
   [ -n "$boat_color_line" ] || fail "could not capture a colored working-ship row"
   [ -n "$boat_sail_line" ] || fail "could not capture a colored working-ship sail"
   case "$boat_color_line" in
@@ -4623,14 +4663,14 @@ JS
   esac
 
   # The water animates on its own faster cadence while the boat holds its column.
-  boat_column_one=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_frame_one")
+  boat_column_one=$(boat_column "$boat_frame_one" '╲▁▁▁╱')
   boat_water_changed=0
   boat_water_first=$(grep -F '╲▁▁▁╱' "$boat_frame_one" | head -1)
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 60 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_water_snapshot"
     boat_water_line=$(grep -F '╲▁▁▁╱' "$boat_water_snapshot" | head -1)
-    boat_column_two=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_water_snapshot")
+    boat_column_two=$(boat_column "$boat_water_snapshot" '╲▁▁▁╱')
     if [ -n "$boat_water_line" ] && [ "$boat_column_two" = "$boat_column_one" ] &&
       [ "$boat_water_line" != "$boat_water_first" ]; then
       boat_water_changed=1
@@ -4647,7 +4687,7 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_frame_two"
-    boat_column_two=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_frame_two")
+    boat_column_two=$(boat_column "$boat_frame_two" '╲▁▁▁╱')
     if [ -n "$boat_column_two" ] && [ "$boat_column_two" != "$boat_column_one" ]; then
       break
     fi
@@ -4665,7 +4705,7 @@ JS
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_resized_snapshot"
     boat_hull_line=$(grep -F '╲▁▁▁╱' "$boat_resized_snapshot" | head -1)
-    if [ -n "$boat_hull_line" ] && [ "${#boat_hull_line}" -eq 100 ]; then
+    if [ -n "$boat_hull_line" ] && [ "$(boat_width "$boat_hull_line")" -eq 100 ]; then
       break
     fi
     sleep 0.05
@@ -4673,16 +4713,16 @@ JS
   done
   assert_contains "$(cat "$boat_resized_snapshot")" '╲▁▁▁╱' "the working ship left the screen after a resize"
   boat_hull_line=$(grep -F '╲▁▁▁╱' "$boat_resized_snapshot" | head -1)
-  [ "${#boat_hull_line}" -eq 100 ] \
-    || fail "after resizing to 100 columns the ship row was ${#boat_hull_line} cells instead of exactly 100"
+  [ "$(boat_width "$boat_hull_line")" -eq 100 ] \
+    || fail "after resizing to 100 columns the ship row was $(boat_width "$boat_hull_line") cells instead of exactly 100"
   # Exactly one wave row means the two-row sprite reflowed rather than wrapping.
   [ "$(grep -c -F '╲▁▁▁╱' "$boat_resized_snapshot")" -eq 1 ] \
     || fail "the working ship wrapped onto more than one water row after the resize"
   while IFS= read -r boat_line; do
-    [ "${#boat_line}" -le 100 ] \
-      || fail "a rendered line was ${#boat_line} cells after resizing to 100 columns"
+    [ "$(boat_width "$boat_line")" -le 100 ] \
+      || fail "a rendered line was $(boat_width "$boat_line") cells after resizing to 100 columns"
   done <"$boat_resized_snapshot"
-  boat_column_one=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_resized_snapshot")
+  boat_column_one=$(boat_column "$boat_resized_snapshot" '╲▁▁▁╱')
   [ "$boat_column_one" -le 96 ] \
     || fail "the working ship hull started at column $boat_column_one and cannot fit in 100 columns"
 
@@ -4691,7 +4731,7 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_resized_snapshot"
-    boat_column_two=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_resized_snapshot")
+    boat_column_two=$(boat_column "$boat_resized_snapshot" '╲▁▁▁╱')
     if [ -n "$boat_column_two" ] && [ "$boat_column_two" != "$boat_column_one" ]; then
       break
     fi
@@ -4711,7 +4751,7 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 400 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_narrow_snapshot"
-    boat_narrow_column=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_narrow_snapshot")
+    boat_narrow_column=$(boat_column "$boat_narrow_snapshot" '╲▁▁▁╱')
     if [ -n "$boat_narrow_previous" ] && [ -n "$boat_narrow_column" ] &&
       [ "$boat_narrow_column" -ne "$boat_narrow_previous" ]; then
       boat_narrow_next_direction=1
@@ -4730,8 +4770,8 @@ JS
   [ "$boat_narrow_reversed" -eq 1 ] \
     || fail "the working ship never reversed direction on a narrow track"
   boat_hull_line=$(grep -F '╲▁▁▁╱' "$boat_narrow_snapshot" | head -1)
-  [ "${#boat_hull_line}" -eq 12 ] \
-    || fail "the narrow working-ship row was ${#boat_hull_line} cells instead of exactly 12"
+  [ "$(boat_width "$boat_hull_line")" -eq 12 ] \
+    || fail "the narrow working-ship row was $(boat_width "$boat_hull_line") cells instead of exactly 12"
   tmux -L "$TMUX_SOCKET" resize-window -t "$TMUX_SESSION" -x 100 -y 30
 
   # Typing still reaches the editor while the animation runs.
@@ -4747,7 +4787,7 @@ JS
   # Capture the last on-screen column and sail before settling so the next working
   # period in this same Pi session can prove freeze/resume continuity.
   tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_freeze_snapshot"
-  boat_freeze_column=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_freeze_snapshot")
+  boat_freeze_column=$(boat_column "$boat_freeze_snapshot" '╲▁▁▁╱')
   boat_freeze_sail=$(grep -F '◿│◣' "$boat_freeze_snapshot" | tail -1 || true)
   case "$boat_freeze_sail" in
     *'◿│◣'*) boat_freeze_sail='◿│◣' ;;
@@ -4788,7 +4828,7 @@ JS
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_resume_snapshot"
     if grep -Fq '╲▁▁▁╱' "$boat_resume_snapshot"; then
-      boat_resume_column=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_resume_snapshot")
+      boat_resume_column=$(boat_column "$boat_resume_snapshot" '╲▁▁▁╱')
       boat_resume_sail=$(grep -F '◿│◣' "$boat_resume_snapshot" | tail -1 || true)
       case "$boat_resume_sail" in
         *'◿│◣'*) boat_resume_sail='◿│◣' ;;

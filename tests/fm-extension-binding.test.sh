@@ -285,7 +285,7 @@ bind_package() {  # <home> <package> <adapter> [extra args...]
 }
 
 binding_value() {  # <home> <id> <field>
-  node -e '
+  timeout 300 node -e '
     const fs = require("fs");
     const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     const path = process.argv[2].split(".");
@@ -629,8 +629,16 @@ if [ "$extension_segment" = all ] || [ "$extension_segment" = coordinator ]; the
     fail "the section coordinator accepted a stalled child past its deadline"
   fi
   assert_present "$coordinator_ready" "the deadline probe did not start its stalled child"
-  if kill -0 "$(cat "$coordinator_pid")" 2>/dev/null; then
+  # A child that exited is not alive even where this init leaves it a zombie, so
+  # the check asks whether it still runs; where init does reap, the strict form
+  # below still requires the pid to be gone entirely.
+  coordinator_deadline_child=$(cat "$coordinator_pid")
+  if fm_test_process_running "$coordinator_deadline_child"; then
     fail "the coordinator left its deadline child alive"
+  fi
+  if fm_test_init_reaps_orphans "$TMP_ROOT"; then
+    kill -0 "$coordinator_deadline_child" 2>/dev/null \
+      && fail "the coordinator's deadline child exited but this init still answers for its pid"
   fi
   pass "the section coordinator propagates ordered failures and bounded cleanup"
   if [ "$extension_segment" = coordinator ]; then
@@ -1796,7 +1804,7 @@ wait_for_invocation_owner() {  # <home>
 }
 
 owner_group_pid() {  # <owner-file>
-  node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(value.phase!=="group"||!Number.isSafeInteger(value.group_pid))process.exit(1);process.stdout.write(String(value.group_pid));' "$1"
+  timeout 300 node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(value.phase!=="group"||!Number.isSafeInteger(value.group_pid))process.exit(1);process.stdout.write(String(value.group_pid));' "$1"
 }
 
 guarded_out=$(invoke_cleanup guarded node --disallow-code-generation-from-strings "$HOST")
@@ -1958,7 +1966,7 @@ if section_enabled remote-envelope; then
 REMOTE_TRANSFER="$TMP_ROOT/remote-transfer.json"
 FM_HOME="$H_REMOTE_CONTROL" "$HOST" pack-transfer "$P_REMOTE" > "$REMOTE_TRANSFER"
 mutate_transfer() {
-  node - "$REMOTE_TRANSFER" "$1" "$2" <<'JS'
+  timeout 300 node - "$REMOTE_TRANSFER" "$1" "$2" <<'JS'
 const fs = require("fs");
 const crypto = require("crypto");
 const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -2138,7 +2146,7 @@ assert_present "$H_REMOTE/config/extensions.d/org.example.remote.json" "stale bi
 expect_failure "no unique staged package" remote_direct fm-extension.sh retire-transfer org.example.remote \
   --if-transfer-digest "$wrong_binding_digest" --if-binding-digest "$remote_binding_digest"
 cp "$remote_receipt" "$TMP_ROOT/remote-receipt.json"
-node - "$remote_receipt" <<'JS'
+timeout 300 node - "$remote_receipt" <<'JS'
 const fs = require("fs");
 const file = process.argv[2];
 const value = JSON.parse(fs.readFileSync(file, "utf8"));

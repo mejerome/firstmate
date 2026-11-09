@@ -16,6 +16,8 @@ TMP_ROOT=$(fm_test_tmproot fm-mail)
 HOME_DIR="$TMP_ROOT/home"
 mkdir -p "$HOME_DIR"
 
+if fm_test_reexec_unprivileged "$@"; then exit 0; fi
+
 test_missing_secret_fails_cleanly() {
   local out rc
   env -u FM_MAIL_USER -u FM_MAIL_PASS -u FM_IMAP_HOST -u FM_SMTP_HOST \
