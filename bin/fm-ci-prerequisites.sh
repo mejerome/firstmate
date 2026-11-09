@@ -56,6 +56,29 @@ jq_usable() {
     { [ "$major" -eq "$JQ_MIN_MAJOR" ] && [ "$minor" -ge "$JQ_MIN_MINOR" ]; }
 }
 
+# Presence is not usability: a runner can carry a tool whose version command
+# fails. Prove each installed tool with one bounded invocation so a shard fails
+# here with the cause instead of hours later in a suite that assumed it.
+prove_tool() {
+  case "$1" in
+    curl) curl --version >/dev/null 2>&1 ;;
+    perl) perl -v >/dev/null 2>&1 ;;
+    python3) python3 --version >/dev/null 2>&1 ;;
+    ruby) ruby --version >/dev/null 2>&1 ;;
+    tmux) tmux -V >/dev/null 2>&1 ;;
+    lsof) lsof -v >/dev/null 2>&1 ;;
+    tsc) tsc --version >/dev/null 2>&1 ;;
+    *) return 0 ;;
+  esac
+}
+
+prove_path_tool() {
+  case "$1" in
+    /usr/bin/time) "$1" -p true >/dev/null 2>&1 ;;
+    *) return 0 ;;
+  esac
+}
+
 missing=
 for tool in $DEFAULT_TOOLS; do
   command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
@@ -78,7 +101,6 @@ packages="${packages# }"
 if [ -z "$packages" ] && [ -z "$missing_npm" ] && [ "$need_jq" -eq 0 ]; then
   printf 'fm-ci-prerequisites: %s %s jq already resolve on PATH at usable versions\n' \
     "$DEFAULT_TOOLS" "$DEFAULT_NPM_TOOLS"
-  exit 0
 fi
 
 if [ -n "$packages" ]; then
@@ -137,15 +159,23 @@ esac
 status=0
 for tool in $DEFAULT_TOOLS $DEFAULT_NPM_TOOLS; do
   if command -v "$tool" >/dev/null 2>&1; then
-    printf 'fm-ci-prerequisites: %s -> %s\n' "$tool" "$(command -v "$tool")"
+    if prove_tool "$tool"; then
+      printf 'fm-ci-prerequisites: %s -> %s\n' "$tool" "$(command -v "$tool")"
+    else
+      printf 'fm-ci-prerequisites: %s is present but unusable after install\n' "$tool" >&2
+      status=1
+    fi
   else
     printf 'fm-ci-prerequisites: %s is still missing after install\n' "$tool" >&2
     status=1
   fi
 done
 for path in $DEFAULT_PATH_TOOLS; do
-  if [ -x "$path" ]; then
+  if [ -x "$path" ] && prove_path_tool "$path"; then
     printf 'fm-ci-prerequisites: %s -> %s\n' "${path##*/}" "$path"
+  elif [ -x "$path" ]; then
+    printf 'fm-ci-prerequisites: %s is present but unusable after install\n' "$path" >&2
+    status=1
   else
     printf 'fm-ci-prerequisites: %s is still missing after install\n' "$path" >&2
     status=1

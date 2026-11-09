@@ -54,8 +54,22 @@ TMP=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-treehouse.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 printf 'fm-install-treehouse.sh: downloading %s from %s\n' "$ARCHIVE" "$URL" >&2
-curl -fsSL --max-filesize "$FM_TREEHOUSE_CI_MAX_BYTES" "$URL" -o "$TMP/$ARCHIVE" \
-  || die "download failed for $URL (bounded at $FM_TREEHOUSE_CI_MAX_BYTES bytes)"
+# A transient forge/gateway window can outlast one request. Retry with a
+# bounded ladder and keep the SHA-256 pin authoritative.
+DOWNLOAD_ATTEMPTS=16
+DOWNLOAD_MAX_SLEEP=60
+download_attempt=1
+while ! curl -fsSL --max-filesize "$FM_TREEHOUSE_CI_MAX_BYTES" "$URL" -o "$TMP/$ARCHIVE"; do
+  if [ "$download_attempt" -ge "$DOWNLOAD_ATTEMPTS" ]; then
+    die "download failed after $DOWNLOAD_ATTEMPTS attempts for $URL (bounded at $FM_TREEHOUSE_CI_MAX_BYTES bytes)"
+  fi
+  printf 'fm-install-treehouse.sh: download attempt %s failed; retrying\n' "$download_attempt" >&2
+  backoff=$((1 << (download_attempt - 1)))
+  [ "$backoff" -le "$DOWNLOAD_MAX_SLEEP" ] || backoff=$DOWNLOAD_MAX_SLEEP
+  jitter=$((download_attempt % 3))
+  sleep $((backoff + jitter))
+  download_attempt=$((download_attempt + 1))
+done
 
 if command -v sha256sum >/dev/null 2>&1; then
   ACTUAL_SHA256=$(sha256sum "$TMP/$ARCHIVE" | awk '{print $1}')
